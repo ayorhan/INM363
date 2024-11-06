@@ -1,0 +1,33 @@
+# Python-related
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+env/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Virtual Environment
+env/
+venv/
+ENV/
+
+# PyTorch checkpoints and models
+*.ckpt
+*.pt
+*.pth
+
+# Wandb logs
+wandb/
+wandb-debug.log
+
+# IDEs
+.vscode/
+.idea/
+
+# Other files
+.DS_Store
+*.log
+*.csv
