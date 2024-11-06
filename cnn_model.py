@@ -6,7 +6,8 @@ import torchvision.models as models
 class VGG19Features(nn.Module):
     def __init__(self):
         super(VGG19Features, self).__init__()
-        vgg19 = models.vgg19(pretrained=True).features
+        # Updated to use the new weights parameter instead of pretrained=True
+        vgg19 = models.vgg19(weights="VGG19_Weights.DEFAULT").features
         self.style_layers = ['0', '5', '10', '19', '28']
         self.content_layers = ['21']
         self.model = nn.Sequential(*[vgg19[i] for i in range(29)])
