@@ -1,0 +1,37 @@
+# Configuration for StarGAN model
+model:
+  model_type: "stargan"
+  image_size: 128
+  g_conv_dim: 64
+  d_conv_dim: 64
+  c_dim: 5
+  n_res: 6
+
+training:
+  batch_size: 16
+  num_epochs: 100
+  g_lr: 0.0001
+  d_lr: 0.0001
+  beta1: 0.5
+  beta2: 0.999
+  lambda_cls: 1.0
+  lambda_rec: 10.0
+  lambda_gp: 10.0
+  save_interval: 500
+  validation_interval: 250
+
+data:
+  train_path: "data/train"
+  val_path: "data/val"
+  image_size: 128
+  use_augmentation: true
+  num_workers: 4
+  use_fiftyone: true
+
+logging:
+  use_wandb: true
+  project_name: "multi-domain-translation"
+  run_name: "stargan-experiment"
+  log_interval: 100
+  save_dir: "checkpoints/stargan"
+  output_dir: "outputs/stargan" 

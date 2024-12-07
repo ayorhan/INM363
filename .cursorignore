@@ -1,0 +1,7 @@
+# Ignore all files in the following directories
+__pycache__/
+data/
+torch_utils/
+
+# Ignore all `.log` files
+*.log

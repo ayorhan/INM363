@@ -1,0 +1,30 @@
+# Configuration for StyleMixerModel
+model:
+  model_type: "style_mixer"
+  device: "cuda"
+  lr: 0.0002
+  content_weight: 1.0
+  style_weight: 5.0
+
+training:
+  batch_size: 4
+  num_epochs: 50
+  save_interval: 500
+  validation_interval: 250
+
+data:
+  content_path: "data/content"
+  style_path: "data/styles"
+  image_size: 256
+  crop_size: 256
+  use_augmentation: true
+  num_workers: 4
+  use_fiftyone: true
+
+logging:
+  use_wandb: true
+  project_name: "style-transfer"
+  run_name: "style-mixer-experiment"
+  log_interval: 100
+  save_dir: "checkpoints/style_mixer"
+  output_dir: "outputs/style_mixer" 

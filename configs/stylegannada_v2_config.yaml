@@ -1,0 +1,37 @@
+# Configuration for StyleGANNADAv2 model
+model:
+  model_type: "stylegannada_v2"
+  device: "cuda"
+  z_dim: 512
+  w_dim: 512
+  c_dim: 512
+  img_resolution: 1024
+  img_channels: 3
+  g_lr: 0.0001
+  d_lr: 0.0001
+  adv_weight: 1.0
+  clip_weight: 1.0
+  id_weight: 1.0
+  temperature: 0.07
+
+training:
+  batch_size: 8
+  num_epochs: 100
+  save_interval: 500
+  validation_interval: 250
+
+data:
+  train_path: "data/train"
+  val_path: "data/val"
+  image_size: 1024
+  use_augmentation: true
+  num_workers: 4
+  use_fiftyone: true
+
+logging:
+  use_wandb: true
+  project_name: "text-driven-domain-adaptation"
+  run_name: "stylegannada-v2-experiment"
+  log_interval: 100
+  save_dir: "checkpoints/stylegannada_v2"
+  output_dir: "outputs/stylegannada_v2" 

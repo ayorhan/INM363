@@ -1,0 +1,41 @@
+# Configuration for MUNIT model
+model:
+  model_type: "munit"
+  input_dim: 3
+  style_dim: 8
+  n_downsample: 2
+  n_res: 4
+  activ: "relu"
+  pad_type: "reflect"
+  mlp_dim: 256
+
+training:
+  batch_size: 4
+  num_epochs: 100
+  learning_rate: 0.0001
+  beta1: 0.5
+  beta2: 0.999
+  scheduler_type: "step"
+  step_size: 30
+  gamma: 0.1
+  content_weight: 1.0
+  style_weight: 10.0
+  save_interval: 500
+  validation_interval: 250
+
+data:
+  content_path: "data/coco"
+  style_path: "data/wikiart"
+  image_size: 256
+  crop_size: 256
+  use_augmentation: true
+  num_workers: 4
+  use_fiftyone: true
+
+logging:
+  use_wandb: true
+  project_name: "style-transfer"
+  run_name: "munit-experiment"
+  log_interval: 100
+  save_dir: "checkpoints/munit"
+  output_dir: "outputs/munit" 

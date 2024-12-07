@@ -1,0 +1,34 @@
+# Configuration for CycleGANVC model
+model:
+  model_type: "cycleganvc"
+  input_channels: 1
+  output_channels: 1
+  generator_filters: 128
+  discriminator_filters: 128
+
+training:
+  batch_size: 4
+  num_epochs: 200
+  learning_rate: 0.0002
+  beta1: 0.5
+  beta2: 0.999
+  lambda_cycle: 10.0
+  lambda_identity: 5.0
+  save_interval: 500
+  validation_interval: 250
+
+data:
+  domainA_path: "data/voiceA"
+  domainB_path: "data/voiceB"
+  mel_spectrogram_size: [80, 64]
+  use_augmentation: false
+  num_workers: 4
+  use_fiftyone: true
+
+logging:
+  use_wandb: true
+  project_name: "voice-conversion"
+  run_name: "cycleganvc-experiment"
+  log_interval: 100
+  save_dir: "checkpoints/cycleganvc"
+  output_dir: "outputs/cycleganvc" 

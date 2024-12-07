@@ -1,0 +1,42 @@
+# Configuration for AdaIN model
+model:
+  model_type: "adain"
+  input_channels: 3
+  output_channels: 3
+  encoder_type: "vgg19"
+  decoder_type: "basic"
+  content_layers: ["relu4_1"]
+  style_layers: ["relu1_1", "relu2_1", "relu3_1", "relu4_1"]
+  use_dropout: true
+
+training:
+  batch_size: 8
+  num_epochs: 100
+  learning_rate: 0.0001
+  beta1: 0.5
+  beta2: 0.999
+  scheduler_type: "cosine"
+  min_lr: 0.00001
+  content_weight: 1.0
+  style_weight: 10.0
+  save_interval: 1000
+  validation_interval: 500
+  clip_grad_norm: true
+  max_grad_norm: 5.0
+
+data:
+  content_path: "data/coco"
+  style_path: "data/wikiart"
+  image_size: 256
+  crop_size: 256
+  use_augmentation: false
+  num_workers: 2
+  use_fiftyone: true  # Enable FiftyOne integration
+
+logging:
+  use_wandb: true
+  project_name: "style-transfer"
+  run_name: "adain-baseline"
+  log_interval: 100
+  save_dir: "checkpoints/adain"
+  output_dir: "outputs/adain" 

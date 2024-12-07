@@ -1,0 +1,39 @@
+# Configuration for LST model
+model:
+  model_type: "lst"
+  input_channels: 3
+  output_channels: 3
+  encoder_layers: [64, 128, 256, 512]
+  decoder_layers: [512, 256, 128, 64]
+  transform_layers: [64, 128, 256, 512]
+
+training:
+  batch_size: 4
+  num_epochs: 50
+  learning_rate: 0.0002
+  beta1: 0.9
+  beta2: 0.999
+  scheduler_type: "step"
+  step_size: 20
+  gamma: 0.5
+  content_weight: 1.0
+  style_weight: 5.0
+  save_interval: 500
+  validation_interval: 250
+
+data:
+  content_path: "data/coco"
+  style_path: "data/wikiart"
+  image_size: 256
+  crop_size: 256
+  use_augmentation: true
+  num_workers: 4
+  use_fiftyone: true
+
+logging:
+  use_wandb: true
+  project_name: "style-transfer"
+  run_name: "lst-experiment"
+  log_interval: 100
+  save_dir: "checkpoints/lst"
+  output_dir: "outputs/lst" 

@@ -1,0 +1,45 @@
+# Configuration for CycleGAN model
+model:
+  model_type: "cyclegan"
+  input_channels: 3
+  output_channels: 3
+  base_filters: 64
+  n_residual_blocks: 9
+  use_dropout: true
+  norm_type: "instance"
+  activation: "relu"
+  init_type: "normal"
+
+training:
+  batch_size: 4
+  num_epochs: 200
+  learning_rate: 0.0002
+  beta1: 0.5
+  beta2: 0.999
+  scheduler_type: "linear"
+  n_epochs_decay: 100
+  lambda_A: 10.0
+  lambda_B: 10.0
+  lambda_identity: 0.5
+  pool_size: 50
+  save_interval: 1000
+  validation_interval: 500
+
+data:
+  trainA_path: "data/monet2photo/trainA"
+  trainB_path: "data/monet2photo/trainB"
+  testA_path: "data/monet2photo/testA"
+  testB_path: "data/monet2photo/testB"
+  image_size: 256
+  crop_size: 256
+  use_augmentation: true
+  num_workers: 4
+  use_fiftyone: true
+
+logging:
+  use_wandb: true
+  project_name: "style-transfer"
+  run_name: "cyclegan-monet"
+  log_interval: 100
+  save_dir: "checkpoints/cyclegan"
+  output_dir: "outputs/cyclegan" 

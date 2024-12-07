@@ -1,0 +1,13 @@
+numpy<2.0
+torch
+torchvision
+wandb
+Pillow
+scikit-image
+clip
+ninja
+matplotlib
+seaborn
+lpips
+tqdm
+fiftyone

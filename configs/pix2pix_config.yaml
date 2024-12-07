@@ -1,0 +1,38 @@
+# Configuration for Pix2Pix model
+model:
+  model_type: "pix2pix"
+  input_channels: 3
+  output_channels: 3
+  base_filters: 64
+  n_layers: 3
+  use_dropout: true
+  norm_type: "batch"
+  init_type: "normal"
+
+training:
+  batch_size: 4
+  num_epochs: 100
+  learning_rate: 0.0002
+  beta1: 0.5
+  beta2: 0.999
+  scheduler_type: "linear"
+  n_epochs_decay: 50
+  lambda_L1: 100.0
+  save_interval: 500
+  validation_interval: 250
+
+data:
+  paired_path: "data/facades"
+  image_size: 256
+  crop_size: 256
+  use_augmentation: true
+  num_workers: 4
+  use_fiftyone: true
+
+logging:
+  use_wandb: true
+  project_name: "style-transfer"
+  run_name: "pix2pix-experiment"
+  log_interval: 100
+  save_dir: "checkpoints/pix2pix"
+  output_dir: "outputs/pix2pix" 

@@ -1,0 +1,37 @@
+# Configuration for CartoonGAN model
+model:
+  model_type: "cartoongan"
+  input_channels: 3
+  output_channels: 3
+  num_filters: 64
+  num_blocks: 8
+
+training:
+  batch_size: 4
+  num_epochs: 100
+  learning_rate: 0.0001
+  beta1: 0.5
+  beta2: 0.999
+  lambda_adv: 1.0
+  lambda_content: 10.0
+  lambda_edge: 10.0
+  save_interval: 500
+  validation_interval: 250
+
+data:
+  photo_path: "data/photos"
+  cartoon_path: "data/cartoons"
+  smooth_cartoon_path: "data/smooth_cartoons"
+  image_size: 256
+  crop_size: 256
+  use_augmentation: true
+  num_workers: 4
+  use_fiftyone: true
+
+logging:
+  use_wandb: true
+  project_name: "style-transfer"
+  run_name: "cartoongan-experiment"
+  log_interval: 100
+  save_dir: "checkpoints/cartoongan"
+  output_dir: "outputs/cartoongan" 

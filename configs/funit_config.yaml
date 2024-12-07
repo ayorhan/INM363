@@ -1,0 +1,38 @@
+# Configuration for FUNIT model
+model:
+  model_type: "funit"
+  input_dim: 3
+  dim: 64
+  n_class: 10
+  content_dim: 256
+  style_dim: 256
+  n_res: 4
+
+training:
+  batch_size: 4
+  num_epochs: 100
+  g_lr: 0.0001
+  d_lr: 0.0004
+  beta1: 0.5
+  beta2: 0.999
+  lambda_cls: 1.0
+  lambda_rec: 10.0
+  save_interval: 500
+  validation_interval: 250
+
+data:
+  content_path: "data/coco"
+  style_path: "data/wikiart"
+  image_size: 256
+  crop_size: 256
+  use_augmentation: true
+  num_workers: 4
+  use_fiftyone: true
+
+logging:
+  use_wandb: true
+  project_name: "style-transfer"
+  run_name: "funit-experiment"
+  log_interval: 100
+  save_dir: "checkpoints/funit"
+  output_dir: "outputs/funit" 

@@ -1,0 +1,22 @@
+training:
+  batch_size: 4
+  num_epochs: 100
+  learning_rate: 0.0002
+  beta1: 0.5
+  beta2: 0.999
+  num_workers: 4
+  save_interval: 1000
+  validation_interval: 500
+
+model:
+  model_type: "adain"
+  input_channels: 3
+  output_channels: 3
+  base_filters: 64
+  use_dropout: true
+
+data:
+  dataset_path: "data/style_dataset"
+  image_size: 256
+  crop_size: 256
+  use_augmentation: true 

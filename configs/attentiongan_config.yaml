@@ -1,0 +1,37 @@
+# Configuration for AttentionGAN model
+model:
+  model_type: "attentiongan"
+  input_channels: 3
+  output_channels: 3
+  attention_layers: [64, 128, 256, 512]
+
+training:
+  batch_size: 4
+  num_epochs: 100
+  learning_rate: 0.0002
+  beta1: 0.5
+  beta2: 0.999
+  scheduler_type: "linear"
+  n_epochs_decay: 50
+  lambda_adv: 1.0
+  lambda_content: 10.0
+  lambda_style: 100.0
+  save_interval: 500
+  validation_interval: 250
+
+data:
+  content_path: "data/coco"
+  style_path: "data/wikiart"
+  image_size: 256
+  crop_size: 256
+  use_augmentation: true
+  num_workers: 4
+  use_fiftyone: true
+
+logging:
+  use_wandb: true
+  project_name: "style-transfer"
+  run_name: "attentiongan-experiment"
+  log_interval: 100
+  save_dir: "checkpoints/attentiongan"
+  output_dir: "outputs/attentiongan" 

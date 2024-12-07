@@ -1,0 +1,34 @@
+# Configuration for StyleGAN2 model
+model:
+  model_type: "stylegan2"
+  z_dim: 512
+  w_dim: 512
+  num_mapping: 8
+  num_layers: 18
+  start_channels: 32
+  image_size: 1024
+  g_lr: 0.002
+  d_lr: 0.002
+  path_reg_weight: 2.0
+
+training:
+  batch_size: 16
+  num_epochs: 100
+  save_interval: 500
+  validation_interval: 250
+
+data:
+  train_path: "data/train"
+  val_path: "data/val"
+  image_size: 1024
+  use_augmentation: true
+  num_workers: 4
+  use_fiftyone: true
+
+logging:
+  use_wandb: true
+  project_name: "stylegan2-training"
+  run_name: "stylegan2-experiment"
+  log_interval: 100
+  save_dir: "checkpoints/stylegan2"
+  output_dir: "outputs/stylegan2" 
