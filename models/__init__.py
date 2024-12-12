@@ -6,8 +6,10 @@ import torch
 import torch.nn as nn
 from typing import Dict, Any, Optional
 
+from utils.config import StyleTransferConfig
+
 from .AdaIN import AdaIN
-from .AdaINPlusPlus import AdaINPlusPlus
+from .AdaINPlusPlus import AdaINPlusPlusModel
 from .ArtFlow import ArtFlow
 from .AttentionGAN import AttentionGAN
 from .CartoonGAN import CartoonGAN
@@ -32,10 +34,9 @@ from .StarGAN import StarGAN
 from .STROTSS import STROTSS
 from .StyleFormer import StyleFormer
 from .StyleGAN2 import StyleGAN2
-from .StyleGAN2ADA import StyleGAN2ADA
-from .StyleGANNADA import StyleGANNADA
+#from .StyleGAN2ADA import StyleGAN2ADA
 from .StyleGANNADAv2 import StyleGANNADAv2
-from .StyleMixer import StyleMixer
+from .StyleMixer import StyleMixerModel
 from .UGATIT import UGATIT
 
 
@@ -43,7 +44,7 @@ class ModelRegistry:
     """Registry for all available models"""
     _models = {
         'adain': AdaIN,
-        'adainplusplus': AdaINPlusPlus,
+        'adainplusplus': AdaINPlusPlusModel,
         'artflow': ArtFlow,
         'attentiongan': AttentionGAN,
         'cartoongan': CartoonGAN,
@@ -68,10 +69,9 @@ class ModelRegistry:
         'strotss': STROTSS,
         'styleformer': StyleFormer,
         'stylegan2': StyleGAN2,
-        'stylegan2ada': StyleGAN2ADA,
-        'stylegannada': StyleGANNADA,
+#        'stylegan2ada': StyleGAN2ADA,
         'stylegannadav2': StyleGANNADAv2,
-        'stylemixer': StyleMixer,
+        'style_mixer': StyleMixerModel,
         'ugatit': UGATIT,
         'johnson': JohnsonModel
     }
@@ -91,44 +91,23 @@ class ModelRegistry:
         """List all registered models"""
         return list(cls._models.keys())
 
-def get_model(config: Dict[str, Any]) -> nn.Module:
-    """
-    Create and initialize a model based on configuration
+def get_model(config: StyleTransferConfig):
+    """Get appropriate model based on configuration"""
+    model_type = config.model.model_type.lower()
+    model_config = config.get_model_config()
     
-    Args:
-        config: Dictionary containing model configuration
-            Required keys:
-            - model_type: str, name of the model
-            - device: str, device to put model on
-            Optional keys depend on specific model
+    MODEL_MAPPING = {
+        'adain': lambda: AdaIN(),
+        'adainplusplus': lambda: AdaINPlusPlusModel(model_config),
+        'stylegan2': lambda: StyleGAN2(model_config),
+    #    'stylegan2ada': lambda: StyleGAN2ADA(model_config),
+        'style_mixer': lambda: StyleMixerModel(model_config)
+    }
     
-    Returns:
-        Initialized model
-    
-    Raises:
-        ValueError: If model_type is not recognized
-    """
-    model_type = config['model_type'].lower()
-    model_class = ModelRegistry.get_model(model_type)
-    
-    if model_class is None:
-        raise ValueError(
-            f"Unknown model type: {model_type}. "
-            f"Available models: {ModelRegistry.list_models()}"
-        )
-    
-    # Initialize model
-    model = model_class(config)
-    
-    # Load pretrained weights if specified
-    if 'pretrained_path' in config:
-        load_pretrained_weights(model, config['pretrained_path'])
-    
-    # Move to specified device
-    device = config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
-    
-    return model
+    if model_type not in MODEL_MAPPING:
+        raise ValueError(f"Unsupported model type: {model_type}")
+        
+    return MODEL_MAPPING[model_type]()
 
 def load_pretrained_weights(model: nn.Module, weights_path: str) -> None:
     """

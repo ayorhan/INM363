@@ -1,5 +1,5 @@
 """
-Data loading utilities for style transfer models with FiftyOne integration
+Data loading utilities for style transfer models
 """
 
 import os
@@ -9,24 +9,22 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-import fiftyone as fo
+from utils.config import StyleTransferConfig
 
 class StyleTransferDataset(Dataset):
-    """Base dataset class for style transfer with FiftyOne integration"""
+    """Base dataset class for style transfer"""
     def __init__(self, 
                  content_path: str,
                  style_path: str,
                  image_size: int = 256,
                  crop_size: int = None,
-                 use_augmentation: bool = True,
-                 use_fiftyone: bool = False):
+                 use_augmentation: bool = True):
         super().__init__()
         
         self.content_path = Path(content_path)
         self.style_path = Path(style_path)
         self.image_size = image_size
         self.crop_size = crop_size or image_size
-        self.use_fiftyone = use_fiftyone
         
         # Get image paths
         self.content_images = self._get_image_paths(self.content_path)
@@ -35,10 +33,6 @@ class StyleTransferDataset(Dataset):
         # Set up transformations
         self.transform = self._setup_transforms(use_augmentation)
         
-        # Create FiftyOne dataset if enabled
-        if self.use_fiftyone:
-            self.fo_dataset = self._create_fiftyone_dataset()
-        
     def _get_image_paths(self, path: Path) -> List[Path]:
         """Get all image paths recursively"""
         valid_extensions = {'.jpg', '.jpeg', '.png', '.bmp'}
@@ -46,7 +40,7 @@ class StyleTransferDataset(Dataset):
             p for p in path.rglob("*")
             if p.suffix.lower() in valid_extensions
         ]
-    
+
     def _setup_transforms(self, use_augmentation: bool) -> transforms.Compose:
         """Set up image transformations"""
         transform_list = [
@@ -65,20 +59,6 @@ class StyleTransferDataset(Dataset):
             ] + transform_list
             
         return transforms.Compose(transform_list)
-    
-    def _create_fiftyone_dataset(self) -> fo.Dataset:
-        """Create a FiftyOne dataset for visualization"""
-        dataset = fo.Dataset("style_transfer_dataset")
-        
-        # Add content images
-        content_samples = [fo.Sample(filepath=str(img_path)) for img_path in self.content_images]
-        dataset.add_samples(content_samples)
-        
-        # Add style images
-        style_samples = [fo.Sample(filepath=str(img_path)) for img_path in self.style_images]
-        dataset.add_samples(style_samples)
-        
-        return dataset
     
     def __len__(self) -> int:
         return len(self.content_images)
@@ -140,31 +120,28 @@ class PairedDataset(Dataset):
             'path': str(self.image_paths[idx])
         }
 
-def create_dataloader(config: Dict, split: str = 'train') -> DataLoader:
+def create_dataloader(config: StyleTransferConfig, split: str):
     """Create appropriate dataloader based on configuration"""
-    if config['model_type'] in ['pix2pix']:
-        # Paired dataset
+    if getattr(config, 'model_type', None) in ['pix2pix']:
         dataset = PairedDataset(
-            paired_path=config['dataset_path'],
-            image_size=config['image_size'],
-            crop_size=config['crop_size'],
-            use_augmentation=config['use_augmentation']
+            paired_path=config.dataset_path,
+            image_size=config.data.image_size,
+            crop_size=config.data.crop_size,
+            use_augmentation=config.data.use_augmentation
         )
     else:
-        # Unpaired dataset
         dataset = StyleTransferDataset(
-            content_path=config['content_path'],
-            style_path=config['style_path'],
-            image_size=config['image_size'],
-            crop_size=config['crop_size'],
-            use_augmentation=config['use_augmentation'],
-            use_fiftyone=config.get('use_fiftyone', False)
+            content_path=config.data.content_path,
+            style_path=config.data.style_path,
+            image_size=config.data.image_size,
+            crop_size=config.data.crop_size,
+            use_augmentation=config.data.use_augmentation
         )
     
     return DataLoader(
         dataset,
-        batch_size=config['batch_size'],
+        batch_size=config.training.batch_size,
         shuffle=True,
-        num_workers=config['num_workers'],
+        num_workers=config.data.num_workers,
         pin_memory=True
     ) 

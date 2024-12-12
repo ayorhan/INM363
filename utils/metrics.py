@@ -9,21 +9,25 @@ from torchvision import models
 from scipy import linalg
 import lpips
 import numpy as np
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, Union
 
 class StyleTransferMetrics:
     """Collection of metrics for style transfer evaluation"""
-    def __init__(self, device: str = 'cuda'):
-        self.device = device
+    def __init__(self, device='cpu'):
+        # Check if MPS is available (for Apple Silicon)
+        if torch.backends.mps.is_available():
+            self.device = torch.device('mps')
+        else:
+            self.device = torch.device('cpu')
         
         # Initialize LPIPS
-        self.lpips_fn = lpips.LPIPS(net='alex').to(device)
+        self.lpips_fn = lpips.LPIPS(net='alex').to(self.device)
         
         # Initialize VGG for content/style metrics
-        self.vgg = self._load_vgg().to(device)
+        self.vgg = self._load_vgg().to(self.device)
         
         # Initialize FID
-        self.inception = self._load_inception().to(device)
+        self.inception = self._load_inception().to(self.device)
         
     def _load_vgg(self) -> nn.Module:
         """Load and prepare VGG model"""
@@ -46,6 +50,9 @@ class StyleTransferMetrics:
                            target: torch.Tensor,
                            layer_idx: int = 22) -> float:
         """Compute content loss using VGG features"""
+        # Move inputs to the same device as the model
+        generated = generated.to(self.device)
+        target = target.to(self.device)
         features_generated = self.vgg[:layer_idx](generated)
         features_target = self.vgg[:layer_idx](target)
         return F.mse_loss(features_generated, features_target).item()
@@ -55,6 +62,10 @@ class StyleTransferMetrics:
                           style: torch.Tensor,
                           layer_indices: List[int] = [3, 8, 13, 22, 31]) -> float:
         """Compute style loss using Gram matrices"""
+        # Move inputs to the same device as the model
+        generated = generated.to(self.device)
+        style = style.to(self.device)
+        
         style_loss = 0
         for layer_idx in layer_indices:
             features_generated = self.vgg[:layer_idx](generated)
@@ -78,6 +89,14 @@ class StyleTransferMetrics:
                      generated: torch.Tensor, 
                      target: torch.Tensor) -> float:
         """Compute LPIPS perceptual distance"""
+        # Move inputs to the same device as the model
+        generated = generated.to(self.device)
+        target = target.to(self.device)
+        
+        # Ensure the scaling layer is on the same device
+        if hasattr(self.lpips_fn, 'scaling_layer'):
+            self.lpips_fn.scaling_layer = self.lpips_fn.scaling_layer.to(self.device)
+        
         with torch.no_grad():
             distance = self.lpips_fn(generated, target)
         return distance.mean().item()
@@ -130,6 +149,9 @@ class StyleTransferMetrics:
         # Create window
         window = self._create_window(window_size).to(self.device)
         
+        # Ensure window is on the same device and type as the input
+        window = window.to(generated.device, generated.dtype)
+        
         mu1 = F.conv2d(generated, window, padding=window_size//2, groups=3)
         mu2 = F.conv2d(target, window, padding=window_size//2, groups=3)
         
@@ -159,20 +181,32 @@ class StyleTransferMetrics:
         
         return _3D_window
 
-def compute_metrics(outputs: Dict[str, torch.Tensor],
-                   targets: Dict[str, torch.Tensor],
+def compute_metrics(outputs: Union[Dict[str, torch.Tensor], torch.Tensor],
+                   targets: Union[Dict[str, torch.Tensor], torch.Tensor],
                    metrics_config: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
     """
     Compute all relevant metrics for the current batch
     
     Args:
-        outputs: Dictionary of model outputs
-        targets: Dictionary of target values
+        outputs: Model outputs (either tensor or dictionary)
+        targets: Target values (either tensor or dictionary)
         metrics_config: Optional configuration for metrics
     
     Returns:
         Dictionary of computed metrics
     """
+    # Convert tensors to dictionary format if needed
+    if isinstance(outputs, torch.Tensor):
+        outputs = {'generated': outputs}
+    if isinstance(targets, torch.Tensor):
+        targets = {'content': targets}
+        
+    # Ensure outputs and targets are dictionaries
+    if not isinstance(outputs, dict):
+        raise TypeError("outputs must be a dictionary, got {}".format(type(outputs)))
+    if not isinstance(targets, dict):
+        raise TypeError("targets must be a dictionary, got {}".format(type(targets)))
+        
     if metrics_config is None:
         metrics_config = {'device': 'cuda'}
         

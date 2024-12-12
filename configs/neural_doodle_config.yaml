@@ -23,7 +23,6 @@ data:
   crop_size: 256
   use_augmentation: false
   num_workers: 2
-  use_fiftyone: true
 
 logging:
   use_wandb: true

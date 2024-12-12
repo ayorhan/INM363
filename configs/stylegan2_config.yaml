@@ -23,7 +23,6 @@ data:
   image_size: 1024
   use_augmentation: true
   num_workers: 4
-  use_fiftyone: true
 
 logging:
   use_wandb: true

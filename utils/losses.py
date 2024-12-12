@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models
+from torchvision.models import vgg19
 from typing import Dict, List, Tuple, Optional
 
 class VGGPerceptualLoss(nn.Module):
@@ -131,54 +132,92 @@ class TotalVariationLoss(nn.Module):
         w_tv = torch.mean(torch.abs(x[:, :, :, 1:] - x[:, :, :, :-1]))
         return self.weight * (h_tv + w_tv)
 
-class StyleTransferLoss:
+class StyleTransferLoss(nn.Module):
     """Combined loss for style transfer"""
-    def __init__(self, config: Dict):
-        self.perceptual = VGGPerceptualLoss(
-            content_weight=config.get('content_weight', 1.0),
-            style_weight=config.get('style_weight', 1.0)
-        )
-        self.adversarial = AdversarialLoss(
-            mode=config.get('gan_mode', 'lsgan')
-        )
-        self.cycle = CycleLoss(
-            lambda_cycle=config.get('lambda_cycle', 10.0)
-        )
-        self.identity = IdentityLoss(
-            lambda_identity=config.get('lambda_identity', 0.5)
-        )
-        self.tv = TotalVariationLoss(
-            weight=config.get('tv_weight', 1e-6)
-        )
+    def __init__(self, config):
+        super().__init__()
+        self.content_weight = getattr(config.model, 'content_weight', 1.0)
+        self.style_weight = getattr(config.model, 'style_weight', 10.0)
+        
+        # Initialize VGG for perceptual loss
+        self.vgg = vgg19(pretrained=True).features.eval()
+        for param in self.vgg.parameters():
+            param.requires_grad = False
+        
+        # Layer name mapping
+        self.layer_mapping = {
+            'relu1_1': '2',  'relu1_2': '4',
+            'relu2_1': '7',  'relu2_2': '9',
+            'relu3_1': '12', 'relu3_2': '14',
+            'relu3_3': '16', 'relu3_4': '18',
+            'relu4_1': '21', 'relu4_2': '23',
+            'relu4_3': '25', 'relu4_4': '27',
+            'relu5_1': '30', 'relu5_2': '32',
+            'relu5_3': '34', 'relu5_4': '36'
+        }
+        
+        # Extract required layers
+        self.content_layers = ['relu4_2']
+        self.style_layers = ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3']
+        self.layers = nn.ModuleDict()
+        
+        current_block = nn.Sequential()
+        for name, layer in self.vgg.named_children():
+            current_block.add_module(name, layer)
+            if name in [self.layer_mapping[l] for l in self.content_layers + self.style_layers]:
+                self.layers[name] = current_block
+                current_block = nn.Sequential()
+        
+        # Freeze parameters
+        for param in self.parameters():
+            param.requires_grad = False
+            
+    def gram_matrix(self, x: torch.Tensor) -> torch.Tensor:
+        """Compute Gram matrix for style loss"""
+        b, c, h, w = x.size()
+        features = x.view(b, c, -1)
+        gram = torch.bmm(features, features.transpose(1, 2))
+        return gram / (c * h * w)
     
-    def compute_losses(self, 
-                      outputs: Dict[str, torch.Tensor],
-                      targets: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """Compute all relevant losses"""
+    def compute_losses(self, outputs: torch.Tensor, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """Compute content and style losses using VGG features"""
         losses = {}
         
-        # Perceptual loss
-        if 'generated' in outputs and 'target' in targets:
-            perceptual_losses = self.perceptual(outputs['generated'], targets['target'])
-            losses.update(perceptual_losses)
+        # Get VGG features
+        output_features = {}
+        content_features = {}
+        style_features = {}
         
-        # Adversarial loss
-        if 'discriminator' in outputs:
-            losses['adversarial'] = self.adversarial(
-                outputs['discriminator'],
-                targets.get('is_real', True)
-            )
+        # Extract features for each layer
+        x = outputs
+        x_content = batch['content']
+        x_style = batch['style']
         
-        # Cycle consistency
-        if 'reconstructed' in outputs and 'real' in targets:
-            losses['cycle'] = self.cycle(targets['real'], outputs['reconstructed'])
+        for name, layer in self.layers.items():
+            x = layer(x)
+            x_content = layer(x_content)
+            x_style = layer(x_style)
+            
+            if name in [self.layer_mapping[l] for l in self.content_layers]:
+                output_features[name] = x
+                content_features[name] = x_content
+                
+            if name in [self.layer_mapping[l] for l in self.style_layers]:
+                output_features[name] = x
+                style_features[name] = x_style
         
-        # Identity
-        if 'identity' in outputs and 'real' in targets:
-            losses['identity'] = self.identity(targets['real'], outputs['identity'])
+        # Content loss
+        content_loss = 0
+        for name in [self.layer_mapping[l] for l in self.content_layers]:
+            content_loss += F.mse_loss(output_features[name], content_features[name])
+        losses['content'] = self.content_weight * content_loss
         
-        # Total variation
-        if 'generated' in outputs:
-            losses['tv'] = self.tv(outputs['generated'])
+        # Style loss
+        style_loss = 0
+        for name in [self.layer_mapping[l] for l in self.style_layers]:
+            output_gram = self.gram_matrix(output_features[name])
+            style_gram = self.gram_matrix(style_features[name])
+            style_loss += F.mse_loss(output_gram, style_gram)
+        losses['style'] = self.style_weight * style_loss
         
         return losses 

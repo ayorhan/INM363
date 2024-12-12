@@ -23,6 +23,8 @@ wheels/
 # Project specific
 data/
 torch_utils/
+checkpoints/
+outputs/
 
 # Logs
 *.log

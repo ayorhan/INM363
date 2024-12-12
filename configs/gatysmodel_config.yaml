@@ -20,7 +20,6 @@ data:
   crop_size: 256
   use_augmentation: false
   num_workers: 2
-  use_fiftyone: true
   dataset_name: "style_transfer_dataset" 
 
 logging:

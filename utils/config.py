@@ -6,6 +6,7 @@ import yaml
 import os
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
+from pathlib import Path
 
 @dataclass
 class TrainingConfig:
@@ -35,6 +36,16 @@ class DataConfig:
     image_size: int = 256
     crop_size: int = 256
     use_augmentation: bool = True
+
+@dataclass
+class LoggingConfig:
+    """Logging configuration parameters"""
+    use_wandb: bool = False
+    project_name: str = "style-transfer"
+    run_name: str = "default"
+    log_interval: int = 100
+    save_dir: str = "checkpoints"
+    output_dir: str = "outputs"
     
 class StyleTransferConfig:
     """Complete configuration for style transfer training"""
@@ -43,6 +54,7 @@ class StyleTransferConfig:
         self.training = TrainingConfig()
         self.model = ModelConfig(model_type="adain")  # default
         self.data = DataConfig(dataset_path="data/")
+        self.logging = LoggingConfig()
         
         if config_path and os.path.exists(config_path):
             self.load_config(config_path)
@@ -52,27 +64,24 @@ class StyleTransferConfig:
         with open(config_path, 'r') as f:
             config_dict = yaml.safe_load(f)
             
-        # Update training config
-        if 'training' in config_dict:
-            for key, value in config_dict['training'].items():
-                setattr(self.training, key, value)
-                
-        # Update model config
-        if 'model' in config_dict:
-            for key, value in config_dict['model'].items():
-                setattr(self.model, key, value)
-                
-        # Update data config
-        if 'data' in config_dict:
-            for key, value in config_dict['data'].items():
-                setattr(self.data, key, value)
+        # Update all config sections
+        if 'logging' in config_dict:
+            self.logging = LoggingConfig(**config_dict['logging'])
+            
+        # Update other sections
+        for section in ['training', 'model', 'data']:
+            if section in config_dict:
+                config_obj = getattr(self, section)
+                for key, value in config_dict[section].items():
+                    setattr(config_obj, key, value)
     
     def save_config(self, save_path: str) -> None:
         """Save configuration to YAML file"""
         config_dict = {
             'training': self.training.__dict__,
             'model': self.model.__dict__,
-            'data': self.data.__dict__
+            'data': self.data.__dict__,
+            'logging': self.logging.__dict__
         }
         
         with open(save_path, 'w') as f:
@@ -101,4 +110,4 @@ class StyleTransferConfig:
 
 def load_config(config_path: str) -> StyleTransferConfig:
     """Helper function to load configuration"""
-    return StyleTransferConfig(config_path) 
+    return StyleTransferConfig(config_path)

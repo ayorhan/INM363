@@ -10,4 +10,4 @@ matplotlib
 seaborn
 lpips
 tqdm
-fiftyone
+gdown

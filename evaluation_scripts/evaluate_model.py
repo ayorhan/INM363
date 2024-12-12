@@ -9,6 +9,7 @@ from tqdm import tqdm
 import argparse
 import json
 from typing import Dict, Any
+import datetime
 
 from utils.metrics import StyleTransferMetrics, MetricsLogger
 from utils.dataloader import create_dataloader
@@ -20,6 +21,10 @@ def evaluate_model(config_path: str, checkpoint_path: str, output_path: str):
     # Load configuration
     with open(config_path) as f:
         config = json.load(f)
+    
+    # Create model-specific output directory
+    model_output_dir = Path(output_path) / config['model']['model_type']
+    model_output_dir.mkdir(parents=True, exist_ok=True)
     
     # Create model and load checkpoint
     model = get_model(config)
@@ -69,11 +74,12 @@ def evaluate_model(config_path: str, checkpoint_path: str, output_path: str):
     # Get average metrics
     final_metrics = logger.get_average()
     
-    # Save results
-    output_path = Path(output_path)
-    output_path.mkdir(parents=True, exist_ok=True)
+    # Save results to model-specific directory with timestamp
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_name = config['model']['model_type']
     
-    with open(output_path / 'metrics.json', 'w') as f:
+    results_path = model_output_dir / f'{model_name}_evaluation_results_{timestamp}.json'
+    with open(results_path, 'w') as f:
         json.dump(final_metrics, f, indent=4)
     
     print("\nFinal Metrics:")

@@ -11,6 +11,9 @@ from pathlib import Path
 import numpy as np
 from typing import Dict, Any, List, Tuple
 from tqdm import tqdm
+from PIL import Image, ImageDraw, ImageFont
+from torchvision import transforms
+import datetime
 
 from .metrics import compute_metrics
 from .losses import StyleTransferLoss
@@ -23,13 +26,14 @@ class Validator:
                  loss_fn: StyleTransferLoss,
                  config: Dict[str, Any]):
         self.model = model
-        self.val_dataloader = val_dataloader
+        self.dataloader = val_dataloader
         self.loss_fn = loss_fn
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.config = config
-        self.device = config['device']
         
-        # Create output directories
-        self.output_dir = Path(config.get('output_dir', 'outputs'))
+        # Create output directories with default path
+        model_name = getattr(self.config, 'model_name', 'model')
+        self.output_dir = Path(f'outputs/validation/{model_name}')
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
     def validate(self, epoch: int) -> Dict[str, float]:
@@ -48,13 +52,15 @@ class Validator:
         all_metrics = []
         
         with torch.no_grad():
-            for batch_idx, batch in enumerate(tqdm(self.val_dataloader, desc="Validation")):
+            for batch_idx, batch in enumerate(tqdm(self.dataloader, desc="Validation")):
                 # Move data to device
                 batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
                         for k, v in batch.items()}
                 
                 # Forward pass
-                outputs = self.model(batch)
+                content = batch['content']
+                style = batch['style']
+                outputs = self.model(content, style)
                 
                 # Compute losses
                 losses = self.loss_fn.compute_losses(outputs, batch)
@@ -65,60 +71,69 @@ class Validator:
                 all_metrics.append(batch_metrics)
                 
                 # Save validation images periodically
-                if batch_idx % self.config.get('val_save_freq', 100) == 0:
+                val_save_freq = getattr(self.config, 'val_save_freq', 100)
+                if batch_idx % val_save_freq == 0:
                     self._save_validation_images(outputs, batch, epoch, batch_idx)
         
         # Aggregate metrics
-        val_metrics['val_loss'] = total_loss / len(self.val_dataloader)
+        val_metrics['val_loss'] = total_loss / len(self.dataloader)
         for metric in all_metrics[0].keys():
             val_metrics[f'val_{metric}'] = np.mean([m[metric] for m in all_metrics])
         
         # Log to wandb
-        if self.config.get('use_wandb', False):
+        if wandb.run is not None and getattr(self.config, 'use_wandb', False):
             wandb.log(val_metrics, step=epoch)
         
         return val_metrics
     
-    def _save_validation_images(self, 
-                              outputs: Dict[str, torch.Tensor],
-                              batch: Dict[str, torch.Tensor],
-                              epoch: int,
-                              batch_idx: int) -> None:
-        """Save validation images"""
+    def _save_validation_images(self, outputs, batch, epoch, batch_idx):
+        """Save validation images with clear labels"""
         # Create visualization grid
         vis_images = []
+        labels = []        
+        # Add content and generated image pairs
+        if isinstance(batch, dict) and 'content' in batch:
+            for i in range(batch['content'].size(0)):  # Loop through batch
+                vis_images.extend([
+                    batch['content'][i],
+                    outputs['generated'][i, :, :, :]
+                ])
+                labels.extend(['Content', 'Stylized'])
         
-        # Add content images
-        if 'content' in batch:
-            vis_images.append(batch['content'])
+        # Convert all images to CPU at once for efficiency
+        vis_images = [img.cpu() for img in vis_images]
         
-        # Add style images
-        if 'style' in batch:
-            vis_images.append(batch['style'])
+        # Create grid with labels
+        grid = make_grid(torch.stack(vis_images), 
+                        nrow=2,  # 2 columns
+                        normalize=True,
+                        padding=5)
         
-        # Add generated images
-        if 'generated' in outputs:
-            vis_images.append(outputs['generated'])
+        # Add text labels using PIL
+        grid_img = transforms.ToPILImage()(grid)
+        draw = ImageDraw.Draw(grid_img)
+        font = ImageFont.load_default()
         
-        # Add reconstructed images if available
-        if 'reconstructed' in outputs:
-            vis_images.append(outputs['reconstructed'])
+        # Add labels above each column
+        draw.text((grid.size(2)//4, 10), 'Content Images', fill='white', font=font)
+        draw.text((3*grid.size(2)//4, 10), 'Stylized Images', fill='white', font=font)
         
-        # Create grid
-        grid = make_grid(torch.cat(vis_images, dim=0), 
-                        nrow=len(vis_images),
-                        normalize=True)
+        # Create timestamp
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Save image
-        save_path = self.output_dir / f'val_epoch{epoch}_batch{batch_idx}.png'
-        save_image(grid, save_path)
+        # Save image with model name and timestamp
+        save_path = (self.output_dir / 
+                    f'{self.model_name}_epoch{epoch}_batch{batch_idx}_{timestamp}.png')
+        grid_img.save(save_path)
         
         # Log to wandb
-        if self.config.get('use_wandb', False):
+        if getattr(self.config, 'use_wandb', False):
             wandb.log({
                 'validation_samples': wandb.Image(grid),
                 'epoch': epoch
             })
+        
+        
     
     def compute_fid(self) -> float:
         """Compute FID score"""
@@ -148,7 +163,11 @@ class ValidationCallback:
     
     def _save_best_model(self, model: nn.Module, epoch: int) -> Path:
         """Save best model checkpoint"""
-        save_path = Path(self.validator.config['checkpoint_dir']) / f'best_model_epoch{epoch}.pth'
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        model_name = self.validator.config.model.model_type
+        save_path = (Path(self.validator.config.logging.save_dir) / 
+                    f"{model_name}_best_model_epoch{epoch}_{timestamp}.pth")
+        
         torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),

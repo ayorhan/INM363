@@ -23,7 +23,6 @@ data:
   mel_spectrogram_size: [80, 64]
   use_augmentation: false
   num_workers: 4
-  use_fiftyone: true
 
 logging:
   use_wandb: true

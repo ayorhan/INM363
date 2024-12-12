@@ -11,7 +11,7 @@ model:
 
 training:
   batch_size: 8
-  num_epochs: 100
+  num_epochs: 1 #00
   learning_rate: 0.0001
   beta1: 0.5
   beta2: 0.999
@@ -29,9 +29,8 @@ data:
   style_path: "data/wikiart"
   image_size: 256
   crop_size: 256
-  use_augmentation: false
-  num_workers: 2
-  use_fiftyone: true  # Enable FiftyOne integration
+  use_augmentation: true
+  num_workers: 4
 
 logging:
   use_wandb: true
