@@ -139,8 +139,12 @@ class StyleTransferLoss(nn.Module):
         self.content_weight = getattr(config.model, 'content_weight', 1.0)
         self.style_weight = getattr(config.model, 'style_weight', 10.0)
         
-        # Initialize VGG for perceptual loss
+        # Load VGG model and move it to GPU
         self.vgg = vgg19(pretrained=True).features.eval()
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.vgg = self.vgg.to(self.device)
+        
+        # Freeze VGG parameters
         for param in self.vgg.parameters():
             param.requires_grad = False
         
