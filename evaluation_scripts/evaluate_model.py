@@ -2,12 +2,13 @@
 Example script for evaluating a trained style transfer model
 """
 
+import json
 import torch
 import torch.nn as nn
 from pathlib import Path
 from tqdm import tqdm
 import argparse
-import json
+import yaml
 from typing import Dict, Any
 import datetime
 
@@ -20,14 +21,37 @@ def evaluate_model(config_path: str, checkpoint_path: str, output_path: str):
     
     # Load configuration
     with open(config_path) as f:
-        config = json.load(f)
+        config = yaml.safe_load(f)
     
     # Create model-specific output directory
     model_output_dir = Path(output_path) / config['model']['model_type']
     model_output_dir.mkdir(parents=True, exist_ok=True)
     
+    # Set device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if 'device' not in config:
+        config['device'] = str(device)
+    
+    # Convert config to format expected by get_model
+    class ModelConfig:
+        def __init__(self, config_dict):
+            for key, value in config_dict.items():
+                setattr(self, key, value)
+            self.model_type = config_dict['model_type'].lower()
+
+    class Config:
+        def __init__(self, model_config):
+            self.model = model_config
+
+        def get_model_config(self):
+            return self.model.__dict__
+
+    # Create config object with proper structure
+    model_config = ModelConfig(config['model'])
+    model_config_obj = Config(model_config)
+    
     # Create model and load checkpoint
-    model = get_model(config)
+    model = get_model(model_config_obj)
     checkpoint = torch.load(checkpoint_path, map_location='cuda')
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()

@@ -91,17 +91,26 @@ class Validator:
         # Create visualization grid
         vis_images = []
         labels = []        
+        
         # Add content and generated image pairs
         if isinstance(batch, dict) and 'content' in batch:
-            for i in range(batch['content'].size(0)):  # Loop through batch
+            # Convert outputs tensor to dictionary format
+            if isinstance(outputs, torch.Tensor):
+                generated = outputs
+            else:
+                generated = outputs.get('generated', outputs)
+            
+            content = batch['content']
+            
+            # Take first n images from batch
+            n = min(content.size(0), generated.size(0))
+            
+            for i in range(n):
                 vis_images.extend([
-                    batch['content'][i],
-                    outputs['generated'][i, :, :, :]
+                    content[i].cpu(),  # Move to CPU immediately
+                    generated[i].cpu()  # Move to CPU immediately
                 ])
                 labels.extend(['Content', 'Stylized'])
-        
-        # Convert all images to CPU at once for efficiency
-        vis_images = [img.cpu() for img in vis_images]
         
         # Create grid with labels
         grid = make_grid(torch.stack(vis_images), 
@@ -121,9 +130,12 @@ class Validator:
         # Create timestamp
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         
+        # Get model name from config or use default
+        model_name = getattr(self.config, 'model_type', 'model')
+        
         # Save image with model name and timestamp
         save_path = (self.output_dir / 
-                    f'{self.model_name}_epoch{epoch}_batch{batch_idx}_{timestamp}.png')
+                    f'{model_name}_epoch{epoch}_batch{batch_idx}_{timestamp}.png')
         grid_img.save(save_path)
         
         # Log to wandb
