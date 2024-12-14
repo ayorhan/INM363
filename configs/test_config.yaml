@@ -1,4 +1,4 @@
-# Configuration for AdaIN model
+# Test configuration for quick model validation
 model:
   model_type: "adain"
   input_channels: 3
@@ -10,8 +10,8 @@ model:
   use_dropout: true
 
 training:
-  batch_size: 8
-  num_epochs: 1 #00
+  batch_size: 4
+  num_epochs: 1
   learning_rate: 0.0001
   beta1: 0.5
   beta2: 0.999
@@ -19,8 +19,8 @@ training:
   min_lr: 0.00001
   content_weight: 1.0
   style_weight: 10.0
-  save_interval: 1000
-  validation_interval: 500
+  save_interval: 50
+  validation_interval: 25
   clip_grad_norm: true
   max_grad_norm: 5.0
 
@@ -30,17 +30,17 @@ data:
   style_path: "data/style"
   image_size: 256
   crop_size: 224
-  train_content_size: 20000
-  train_style_size: 1500
-  val_content_size: 2000
-  val_style_size: 150
+  train_content_size: 100
+  train_style_size: 20
+  val_content_size: 20
+  val_style_size: 10
   use_augmentation: true
   num_workers: 4
 
 logging:
-  use_wandb: true
+  use_wandb: false  # Disabled wandb for testing
   project_name: "style-transfer"
-  run_name: "adain-baseline"
-  log_interval: 100
-  save_dir: "checkpoints/adain"
-  output_dir: "outputs/adain" 
+  run_name: "test-run"
+  log_interval: 10
+  save_dir: "checkpoints/test"
+  output_dir: "outputs/test" 

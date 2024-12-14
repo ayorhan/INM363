@@ -15,6 +15,8 @@ import datetime
 from utils.metrics import StyleTransferMetrics, MetricsLogger
 from utils.dataloader import create_dataloader
 from models import get_model
+from models.AdaIN import AdaIN
+from models.AdaINPlusPlus import AdaINPlusPlusModel
 
 def evaluate_model(config_path: str, checkpoint_path: str, output_path: str):
     """Evaluate a trained model using multiple metrics"""
@@ -32,32 +34,47 @@ def evaluate_model(config_path: str, checkpoint_path: str, output_path: str):
     if 'device' not in config:
         config['device'] = str(device)
     
-    # Convert config to format expected by get_model
+    # Convert config to format expected by get_model and dataloader
     class ModelConfig:
         def __init__(self, config_dict):
             for key, value in config_dict.items():
                 setattr(self, key, value)
             self.model_type = config_dict['model_type'].lower()
 
+    class DataConfig:
+        def __init__(self, config_dict):
+            for key, value in config_dict.items():
+                setattr(self, key, value)
+
+    class TrainingConfig:
+        def __init__(self, config_dict):
+            self.batch_size = config_dict.get('batch_size', 16)
+            self.num_workers = config_dict.get('num_workers', 4)
+
     class Config:
-        def __init__(self, model_config):
+        def __init__(self, model_config, data_config, training_config):
             self.model = model_config
+            self.data = data_config
+            self.training = training_config
 
         def get_model_config(self):
             return self.model.__dict__
 
     # Create config object with proper structure
     model_config = ModelConfig(config['model'])
-    model_config_obj = Config(model_config)
+    data_config = DataConfig(config['data'])
+    training_config = TrainingConfig(config.get('training', {'batch_size': 16, 'num_workers': 4}))
+    config_obj = Config(model_config, data_config, training_config)
     
     # Create model and load checkpoint
-    model = get_model(model_config_obj)
-    checkpoint = torch.load(checkpoint_path, map_location='cuda')
+    model = get_model(config_obj)
+    checkpoint = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
+    model = model.to(device)
     model.eval()
     
-    # Create dataloader
-    val_dataloader = create_dataloader(config, 'val')
+    # Create dataloader using the config object
+    val_dataloader = create_dataloader(config_obj, 'val')
     
     # Initialize metrics
     metrics = StyleTransferMetrics(device=config['device'])
@@ -66,12 +83,27 @@ def evaluate_model(config_path: str, checkpoint_path: str, output_path: str):
     # Evaluation loop
     with torch.no_grad():
         for batch in tqdm(val_dataloader, desc="Evaluating"):
-            # Move data to device
+            # Move data to device and normalize if needed
             batch = {k: v.to(config['device']) if isinstance(v, torch.Tensor) else v 
                     for k, v in batch.items()}
             
+            # Check and print value ranges before processing
+            print(f"Content image range: [{batch['content'].min():.3f}, {batch['content'].max():.3f}]")
+            print(f"Style image range: [{batch['style'].min():.3f}, {batch['style'].max():.3f}]")
+            
             # Generate outputs
-            outputs = model(batch)
+            if isinstance(model, AdaIN):
+                outputs = {'generated': model(batch['content'], batch['style'])}
+            elif isinstance(model, AdaINPlusPlusModel):
+                outputs = {'generated': model.style_transfer(batch['content'], [batch['style']])}
+            else:
+                outputs = model(batch)
+                
+            # Check generated image range
+            print(f"Generated image range: [{outputs['generated'].min():.3f}, {outputs['generated'].max():.3f}]")
+            
+            # Ensure all images are in [0,1] range
+            outputs['generated'] = torch.clamp(outputs['generated'], 0, 1)
             
             # Compute metrics
             batch_metrics = {

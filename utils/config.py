@@ -32,10 +32,17 @@ class ModelConfig:
 @dataclass
 class DataConfig:
     """Dataset configuration"""
-    dataset_path: str
+    dataset_path: str = "data/"
+    content_path: str = "data/coco"
+    style_path: str = "data/style"
     image_size: int = 256
-    crop_size: int = 256
+    crop_size: int = 224
+    train_content_size: int = 20000
+    train_style_size: int = 1500
+    val_content_size: int = 2000
+    val_style_size: int = 150
     use_augmentation: bool = True
+    num_workers: int = 4
 
 @dataclass
 class LoggingConfig:
@@ -52,8 +59,8 @@ class StyleTransferConfig:
     def __init__(self, config_path: str):
         self.config_path = config_path
         self.training = TrainingConfig()
-        self.model = ModelConfig(model_type="adain")  # default
-        self.data = DataConfig(dataset_path="data/")
+        self.model = ModelConfig(model_type="adain")
+        self.data = DataConfig()
         self.logging = LoggingConfig()
         
         if config_path and os.path.exists(config_path):

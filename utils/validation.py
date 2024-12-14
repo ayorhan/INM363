@@ -88,12 +88,17 @@ class Validator:
     
     def _save_validation_images(self, outputs, batch, epoch, batch_idx):
         """Save validation images with clear labels"""
+        # Create model-specific output directory
+        model_name = self.config.model.model_type.lower()
+        output_dir = Path(self.config.logging.output_dir) / 'validation' / model_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
         # Create visualization grid
         vis_images = []
         labels = []        
         
-        # Add content and generated image pairs
-        if isinstance(batch, dict) and 'content' in batch:
+        # Add content, style, and generated image triplets
+        if isinstance(batch, dict) and 'content' in batch and 'style' in batch:
             # Convert outputs tensor to dictionary format
             if isinstance(outputs, torch.Tensor):
                 generated = outputs
@@ -101,41 +106,33 @@ class Validator:
                 generated = outputs.get('generated', outputs)
             
             content = batch['content']
+            style = batch['style']
             
             # Take first n images from batch
-            n = min(content.size(0), generated.size(0))
+            n = min(content.size(0), generated.size(0), style.size(0))
             
             for i in range(n):
                 vis_images.extend([
-                    content[i].cpu(),  # Move to CPU immediately
-                    generated[i].cpu()  # Move to CPU immediately
+                    content[i].cpu(),    # Content image
+                    style[i].cpu(),      # Style image
+                    generated[i].cpu()    # Generated image
                 ])
-                labels.extend(['Content', 'Stylized'])
+                labels.extend(['Content', 'Style', 'Generated'])
         
         # Create grid with labels
         grid = make_grid(torch.stack(vis_images), 
-                        nrow=2,  # 2 columns
+                        nrow=3,  # 3 columns for content-style-generated triplets
                         normalize=True,
                         padding=5)
         
         # Add text labels using PIL
         grid_img = transforms.ToPILImage()(grid)
         draw = ImageDraw.Draw(grid_img)
-        font = ImageFont.load_default()
         
-        # Add labels above each column
-        draw.text((grid.size(2)//4, 10), 'Content Images', fill='white', font=font)
-        draw.text((3*grid.size(2)//4, 10), 'Stylized Images', fill='white', font=font)
-        
-        # Create timestamp
+        # Save with model name prefix and style indication
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # Get model name from config or use default
-        model_name = getattr(self.config, 'model_type', 'model')
-        
-        # Save image with model name and timestamp
-        save_path = (self.output_dir / 
-                    f'{model_name}_epoch{epoch}_batch{batch_idx}_{timestamp}.png')
+        filename = f"{model_name}_validation_epoch{epoch}_batch{batch_idx}_{timestamp}.png"
+        save_path = output_dir / filename
         grid_img.save(save_path)
         
         # Log to wandb

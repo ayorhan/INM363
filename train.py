@@ -1,9 +1,15 @@
 """
-Enhanced training script with validation
+Enhanced training script with validation and dataset management
 """
 
 import os
+# Suppress Intel MKL warnings
 os.environ['MKL_DISABLE_FAST_MM'] = '1'
+os.environ['PYTHONWARNINGS'] = 'ignore::UserWarning'
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning)
+# Specifically for Intel MKL warnings
+warnings.filterwarnings('ignore', message='Intel MKL WARNING.*')
 
 import torch
 import torch.nn as nn
@@ -15,13 +21,15 @@ from tqdm import tqdm
 import logging
 from typing import Dict, Any
 import datetime
+import argparse
 
 from utils.config import load_config, StyleTransferConfig
-from utils.dataloader import create_dataloader
+from utils.dataloader import StyleTransferDataset
 from utils.losses import StyleTransferLoss
 from utils.validation import Validator, ValidationCallback
 from models import get_model
 from evaluation_scripts.evaluate_model import evaluate_model
+from download_datasets import download_coco_images, download_style_images_kaggle
 
 def setup_logging(config: StyleTransferConfig) -> None:
     """Setup logging configuration"""
@@ -30,10 +38,103 @@ def setup_logging(config: StyleTransferConfig) -> None:
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
+def setup_datasets(config: StyleTransferConfig):
+    """Setup dataset paths"""
+    train_content_dir = Path(f"{config.data.content_path}/train/images")
+    train_style_dir = Path(f"{config.data.style_path}/train")
+    val_content_dir = Path(f"{config.data.content_path}/val/images")
+    val_style_dir = Path(f"{config.data.style_path}/val")
+    
+    # Verify that all required directories exist
+    required_dirs = [train_content_dir, train_style_dir, val_content_dir, val_style_dir]
+    for dir_path in required_dirs:
+        if not dir_path.exists():
+            raise FileNotFoundError(
+                f"Directory {dir_path} not found. Please run download_datasets.py first."
+            )
+        if not any(dir_path.iterdir()):
+            raise ValueError(
+                f"Directory {dir_path} is empty. Please run download_datasets.py first."
+            )
+    
+    return train_content_dir, train_style_dir, val_content_dir, val_style_dir
+
+def create_dataloaders(config: StyleTransferConfig, 
+                      train_content_dir: Path,
+                      train_style_dir: Path,
+                      val_content_dir: Path,
+                      val_style_dir: Path) -> tuple:
+    """Create train and validation dataloaders"""
+    # Debug logging
+    logging.info(f"Creating datasets with paths:")
+    logging.info(f"Train content: {train_content_dir} ({len(list(train_content_dir.glob('*.jpg')) + list(train_content_dir.glob('*.png')))} images)")
+    logging.info(f"Train style: {train_style_dir} ({len(list(train_style_dir.glob('*.jpg')) + list(train_style_dir.glob('*.png')))} images)")
+    logging.info(f"Val content: {val_content_dir} ({len(list(val_content_dir.glob('*.jpg')) + list(val_content_dir.glob('*.png')))} images)")
+    logging.info(f"Val style: {val_style_dir} ({len(list(val_style_dir.glob('*.jpg')) + list(val_style_dir.glob('*.png')))} images)")
+    
+    # Create datasets
+    train_dataset = StyleTransferDataset(
+        content_path=train_content_dir,
+        style_path=train_style_dir,
+        image_size=config.data.image_size,
+        crop_size=config.data.crop_size,
+        use_augmentation=config.data.use_augmentation,
+        max_content_size=config.data.train_content_size,
+        max_style_size=config.data.train_style_size
+    )
+    
+    logging.info(f"Created train dataset with {len(train_dataset.content_images)} content and {len(train_dataset.style_images)} style images")
+    
+    if len(train_dataset.content_images) == 0 or len(train_dataset.style_images) == 0:
+        raise ValueError("Train dataset is empty! Please check your data paths and image files.")
+    
+    val_dataset = StyleTransferDataset(
+        content_path=val_content_dir,
+        style_path=val_style_dir,
+        image_size=config.data.image_size,
+        crop_size=config.data.crop_size,
+        use_augmentation=False,
+        max_content_size=config.data.val_content_size,
+        max_style_size=config.data.val_style_size
+    )
+    
+    logging.info(f"Created validation dataset with {len(val_dataset.content_images)} content and {len(val_dataset.style_images)} style images")
+    
+    if len(val_dataset.content_images) == 0 or len(val_dataset.style_images) == 0:
+        raise ValueError("Validation dataset is empty! Please check your data paths and image files.")
+    
+    # Create dataloaders
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=config.training.batch_size,
+        shuffle=True,
+        num_workers=config.data.num_workers
+    )
+    
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=config.training.batch_size,
+        shuffle=False,
+        num_workers=config.data.num_workers
+    )
+    
+    return train_loader, val_loader
+
 def train(config_path: str):
+    """Main training function"""
     # Load configuration
     config = load_config(config_path)
+    
+    # Setup logging
     setup_logging(config)
+    logger = logging.getLogger(__name__)
+    
+    # Setup datasets and dataloaders
+    logger.info("Setting up datasets...")
+    train_content_dir, train_style_dir, val_content_dir, val_style_dir = setup_datasets(config)
+    train_loader, val_loader = create_dataloaders(
+        config, train_content_dir, train_style_dir, val_content_dir, val_style_dir
+    )
     
     # Initialize wandb
     if getattr(config, 'use_wandb', False):
@@ -41,10 +142,6 @@ def train(config_path: str):
             project="style-transfer",
             config=config
         )
-    
-    # Create dataloaders
-    train_dataloader = create_dataloader(config, 'train')
-    val_dataloader = create_dataloader(config, 'val')
     
     # Initialize model
     model = get_model(config)
@@ -69,7 +166,7 @@ def train(config_path: str):
     )
     
     # Initialize validator
-    validator = Validator(model, val_dataloader, loss_fn, config)
+    validator = Validator(model, val_loader, loss_fn, config)
     validation_callback = ValidationCallback(
         validator,
         frequency=config.training.validation_interval
@@ -81,7 +178,7 @@ def train(config_path: str):
         model.train()
         total_loss = 0
         
-        with tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{config.training.num_epochs}") as pbar:
+        with tqdm(train_loader, desc=f"Epoch {epoch+1}/{config.training.num_epochs}") as pbar:
             for batch_idx, batch in enumerate(pbar):
                 # Move data to device
                 batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 

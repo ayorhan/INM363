@@ -26,7 +26,7 @@ def prepare_dataset():
     )
     
     # Download paintings from Wikimedia
-    style_dir = "data/styles"
+    style_dir = "data/style"
     os.makedirs(style_dir, exist_ok=True)
     
     # Define headers for Wikimedia API

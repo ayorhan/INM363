@@ -59,11 +59,21 @@ class StyleTransferEvaluator:
     
     def calculate_psnr(self, img1, img2):
         """Calculate Peak Signal-to-Noise Ratio"""
+        # Ensure inputs are in the same range
+        img1 = torch.clamp(img1, 0, 1)
+        img2 = torch.clamp(img2, 0, 1)
+        
         mse = torch.mean((img1 - img2) ** 2)
-        if mse == 0:
+        if mse < 1e-10:  # Avoid log(0)
             return float('inf')
+        
         max_pixel = 1.0
         psnr = 20 * torch.log10(max_pixel / torch.sqrt(mse))
+        
+        # Add sanity check
+        if psnr < 0:
+            print(f"Warning: Negative PSNR detected. MSE: {mse:.6f}")
+        
         return float(psnr)
     
     def calculate_ssim(self, img1, img2):

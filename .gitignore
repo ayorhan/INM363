@@ -25,6 +25,7 @@ data/
 torch_utils/
 checkpoints/
 outputs/
+evaluation_results/
 
 # Logs
 *.log

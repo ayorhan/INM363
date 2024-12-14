@@ -8,140 +8,160 @@ from tqdm import tqdm
 from PIL import Image
 import argparse
 import hashlib
+import fiftyone as fo
+import fiftyone.zoo as foz
+import random
+import shutil
 
-def download_coco_images(num_images, output_dir, seed=42):
+def download_coco_images(split="train", output_dir=None, num_images=None, seed=42):
     """
-    Download specific number of images from COCO dataset
+    Download images from COCO dataset
+    Args:
+        split: 'train' or 'val'
+        output_dir: Output directory
+        num_images: Number of images to download
+        seed: Random seed for reproducibility
     """
+    # Use FiftyOne to download a small subset directly
+    import fiftyone as fo
+    import fiftyone.zoo as foz
+    
     # Create output directory
+    output_dir = output_dir or f"data/coco/{split}"
+    os.makedirs(output_dir, exist_ok=True)
+    final_dir = Path(output_dir) / "images"
+    final_dir.mkdir(exist_ok=True)
+
+    print(f"Downloading {num_images} COCO {split} images...")
+    
+    # Download only the required number of images
+    dataset = foz.load_zoo_dataset(
+        "coco-2017",
+        split=split,
+        max_samples=num_images,
+        shuffle=True,
+        seed=seed
+    )
+    
+    # Export the images to our directory
+    dataset.export(
+        export_dir=str(final_dir),
+        dataset_type=fo.types.ImageDirectory
+    )
+    
+    return final_dir
+
+def download_style_images_kaggle(num_images=1500, output_dir=None, seed=42):
+    """
+    Download style images from Kaggle Painter by Numbers dataset
+    Args:
+        num_images: Number of images to download
+        output_dir: Output directory
+        seed: Random seed for reproducibility
+    """
+    try:
+        import kaggle
+    except ImportError:
+        raise ImportError("Please install kaggle package: pip install kaggle")
+
+    output_dir = output_dir or "data/style"
     os.makedirs(output_dir, exist_ok=True)
     
-    # COCO API URL for 2017 validation set (smaller than training set)
-    COCO_URL = "http://images.cocodataset.org/val2017"
-    COCO_ANNOTATIONS = "http://images.cocodataset.org/annotations/annotations_trainval2017.zip"
+    # Download dataset from Kaggle (using dataset instead of competition)
+    print("Downloading Painter by Numbers dataset from Kaggle...")
+    kaggle.api.authenticate()
+    kaggle.api.dataset_download_files(
+        'ikarus777/best-artworks-of-all-time',  # This is an alternative art dataset
+        path=output_dir,
+        unzip=True
+    )
     
-    # First, download and cache annotation file if not present
-    annotation_dir = Path("data/annotations")
-    annotation_dir.mkdir(exist_ok=True)
-    annotation_file = annotation_dir / "instances_val2017.json"
+    # Process downloaded images
+    print(f"Processing {num_images} images...")
+    image_files = list(Path(output_dir).rglob('*.jpg'))
     
-    if not annotation_file.exists():
-        print("Downloading COCO annotations...")
-        response = requests.get(COCO_ANNOTATIONS)
-        zip_path = annotation_dir / "annotations.zip"
-        with open(zip_path, "wb") as f:
-            f.write(response.content)
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(annotation_dir.parent)
-        os.remove(zip_path)
-    
-    # Load annotations
-    with open(annotation_file) as f:
-        data = json.load(f)
-    
-    # Get consistent subset of images using seed
-    import random
+    # Randomly select images
     random.seed(seed)
-    selected_images = random.sample(data['images'], min(num_images, len(data['images'])))
+    selected_images = random.sample(image_files, min(num_images, len(image_files)))
     
-    # Download images
-    for img in tqdm(selected_images, desc="Downloading COCO images"):
-        img_url = f"{COCO_URL}/{img['file_name']}"
-        img_path = Path(output_dir) / img['file_name']
-        
-        if not img_path.exists():
-            response = requests.get(img_url)
-            with open(img_path, "wb") as f:
-                f.write(response.content)
-
-def download_wikiart_images(num_images, output_dir, seed=42):
-    """
-    Download style images from PyTorch's examples
-    """
-    os.makedirs(output_dir, exist_ok=True)
+    # Move selected images to the root of output directory
+    for img_path in tqdm(selected_images, desc="Processing images"):
+        dest_path = Path(output_dir) / img_path.name
+        if not dest_path.exists():
+            shutil.copy2(img_path, dest_path)
     
-    # List of style images from PyTorch's examples
-    STYLE_IMAGES = [
-        "candy.jpg", "mosaic.jpg", "rain-princess-cropped.jpg", "udnie.jpg",
-        "seated-nude.jpg", "style1.jpg", "style2.jpg", "style3.jpg",
-        "style4.jpg", "style5.jpg", "style6.jpg", "style7.jpg",
-        "style8.jpg", "style9.jpg", "style10.jpg", "style11.jpg",
-        "style12.jpg", "style13.jpg", "la_muse.jpg", "starry_night.jpg",
-        "the_scream.jpg"
-    ]
+    # Clean up subdirectories
+    for item in Path(output_dir).iterdir():
+        if item.is_dir():
+            shutil.rmtree(item)
     
-    BASE_URL = "https://raw.githubusercontent.com/pytorch/examples/main/fast_neural_style/images/style-images"
+    # Verify images
+    verify_images(output_dir)
     
-    # Get consistent subset using seed
-    import random
-    random.seed(seed)
-    selected_images = random.sample(STYLE_IMAGES, min(num_images, len(STYLE_IMAGES)))
-    
-    # Download images
-    for img_name in tqdm(selected_images, desc="Downloading style images"):
-        img_url = f"{BASE_URL}/{img_name}"
-        img_path = Path(output_dir) / img_name
-        
-        if not img_path.exists():
-            try:
-                response = requests.get(img_url)
-                response.raise_for_status()
-                with open(img_path, "wb") as f:
-                    f.write(response.content)
-            except requests.exceptions.RequestException as e:
-                print(f"Failed to download {img_name}: {e}")
-                continue
-
-    # Return number of successfully downloaded images
-    return len(list(Path(output_dir).glob("*.jpg")))
+    return len(list(Path(output_dir).glob('*.jpg')))
 
 def verify_images(directory):
-    """
-    Verify all images in directory are valid
-    Remove corrupted images
-    """
+    """Verify all images in directory are valid"""
     for img_path in Path(directory).glob("*"):
         try:
             with Image.open(img_path) as img:
                 img.verify()
+                # Also check minimum size
+                if img.size[0] < 256 or img.size[1] < 256:
+                    print(f"Removing small image: {img_path}")
+                    os.remove(img_path)
         except:
             print(f"Removing corrupted image: {img_path}")
             os.remove(img_path)
 
 def main():
     parser = argparse.ArgumentParser(description='Download datasets for style transfer')
-    parser.add_argument('--content-images', type=int, default=100,
+    parser.add_argument('--content-images', type=int, default=20000,
                         help='Number of content images to download')
-    parser.add_argument('--style-images', type=int, default=50,
+    parser.add_argument('--style-images', type=int, default=1500,
                         help='Number of style images to download')
     parser.add_argument('--seed', type=int, default=42,
-                        help='Random seed for consistent downloads')
+                      help='Random seed for consistent downloads')
     parser.add_argument('--output-dir', type=str, default='data',
-                        help='Output directory')
+                      help='Output directory')
+    parser.add_argument('--download-train-content', action='store_true',
+                      help='Download training content images from COCO')
+    parser.add_argument('--download-train-style', action='store_true',
+                      help='Download training style images from Kaggle')
+    parser.add_argument('--download-val-content', action='store_true',
+                      help='Download validation content images from COCO')
+    parser.add_argument('--download-val-style', action='store_true',
+                      help='Download validation style images from Kaggle')
     
     args = parser.parse_args()
     
-    # Setup directories
-    content_dir = Path(args.output_dir) / "coco"
-    style_dir = Path(args.output_dir) / "wikiart"
+    if args.download_train_content:
+        print("Downloading training content images...")
+        train_content_dir = download_coco_images("train", 
+                                               f"{args.output_dir}/coco/train", 
+                                               args.content_images, 
+                                               args.seed)
     
-    # Download datasets
-    print(f"Downloading {args.content_images} content images...")
-    download_coco_images(args.content_images, content_dir, args.seed)
+    if args.download_train_style:
+        print("Downloading training style images...")
+        train_style_dir = download_style_images_kaggle(args.style_images,
+                                                     f"{args.output_dir}/style/train",
+                                                     args.seed)
     
-    print(f"Downloading {args.style_images} style images...")
-    download_wikiart_images(args.style_images, style_dir, args.seed)
+    if args.download_val_content:
+        print("Downloading validation content images...")
+        val_content_dir = download_coco_images("validation",
+                                             f"{args.output_dir}/coco/val",
+                                             args.content_images // 10,
+                                             args.seed)
     
-    # Verify images
-    print("Verifying downloaded images...")
-    verify_images(content_dir)
-    verify_images(style_dir)
+    if args.download_val_style:
+        print("Downloading validation style images...")
+        val_style_dir = download_style_images_kaggle(args.style_images // 10,
+                                                   f"{args.output_dir}/style/val",
+                                                   args.seed)
     
-    print(f"""
-    Dataset download complete:
-    - Content images: {len(list(content_dir.glob("*")))} images in {content_dir}
-    - Style images: {len(list(style_dir.glob("*")))} images in {style_dir}
-    """)
+    print("Download complete for selected datasets.")
 
 if __name__ == "__main__":
     main() 

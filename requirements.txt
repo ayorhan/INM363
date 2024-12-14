@@ -11,3 +11,5 @@ seaborn
 lpips
 tqdm
 gdown
+kaggle
+fiftyone    
