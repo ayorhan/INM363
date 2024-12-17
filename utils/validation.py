@@ -79,6 +79,9 @@ class Validator:
                 
                 # Average metrics
                 val_metrics = {k: v / total_batches for k, v in val_metrics.items()}
+                # Add val_loss as average of all losses
+                val_metrics['val_loss'] = sum(v for k, v in val_metrics.items() 
+                                            if k not in ['output'])
                 
                 return val_metrics
                 
@@ -134,8 +137,9 @@ class Validator:
     def _save_validation_images(self, outputs, batch, epoch, batch_idx):
         """Save validation images with clear labels"""
         # Create model-specific output directory
-        model_name = self.config['model']['model_type'].lower()
-        output_dir = Path(self.config['logging']['output_dir']) / 'validation' / model_name
+        model_name = self.config.model.model_type if hasattr(self.config, 'model') else self.config['model']['model_type']
+        output_dir = Path(self.config.logging.output_dir if hasattr(self.config, 'logging') 
+                         else self.config['logging']['output_dir']) / 'validation' / model_name
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Create visualization grid
