@@ -105,6 +105,9 @@ class Validator:
             real_A = batch['content']
             real_B = batch['style']
             
+            # Access model config as dictionary
+            model_config = self.config.model if hasattr(self.config, 'model') else self.config['model']
+            
             fake_B = self.model(real_A, direction='AB')
             cycle_A = self.model(fake_B, direction='BA')
             identity_A = self.model(real_A, direction='BA')
@@ -115,7 +118,7 @@ class Validator:
             
             losses = self.loss_fn(real_A, real_B, fake_A, fake_B,
                                 cycle_A, cycle_B, identity_A, identity_B)
-            losses['output'] = fake_B  # Store generated output for visualization
+            losses['output'] = fake_B
             return losses
             
         except Exception as e:
@@ -276,14 +279,18 @@ def validate(model, val_loader, metrics, config, device):
     model.eval()
     logger = MetricsLogger()
     
+    # Convert ModelConfig to dict if needed
+    if hasattr(config, '_asdict'):
+        config = config._asdict()
+    elif hasattr(config, '__dict__'):
+        config = config.__dict__
+    
     with torch.no_grad():
         for batch in tqdm(val_loader, desc="Validation"):
             try:
-                # Move data to device
                 batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
                         for k, v in batch.items()}
                 
-                # Handle CycleGAN differently
                 if isinstance(model, CycleGAN):
                     outputs = {'generated': model(batch['content'], direction='AB')}
                 else:
@@ -291,7 +298,6 @@ def validate(model, val_loader, metrics, config, device):
                     if not isinstance(outputs, dict):
                         outputs = {'generated': outputs}
                 
-                # Compute metrics
                 batch_metrics = {
                     'content_loss': metrics.compute_content_loss(
                         outputs['generated'], batch['content']
