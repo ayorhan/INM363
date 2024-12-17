@@ -5,20 +5,20 @@ model:
   output_channels: 3
   encoder_type: "vgg19"
   decoder_type: "basic"
-  content_layers: ["relu4_1"]
-  style_layers: ["relu1_1", "relu2_1", "relu3_1", "relu4_1"]
+  content_layers: ["relu4_1", "relu4_2"]
+  style_layers: ["relu1_1", "relu2_1", "relu3_1", "relu4_1", "relu5_1"]
   use_dropout: true
 
 training:
-  batch_size: 8
+  batch_size: 16
   num_epochs: 100
   learning_rate: 0.0001
-  beta1: 0.5
+  beta1: 0.9
   beta2: 0.999
   scheduler_type: "cosine"
   min_lr: 0.00001
-  content_weight: 1.0
-  style_weight: 10.0
+  content_weight: 5.0
+  style_weight: 3.0
   save_interval: 1000
   validation_interval: 500
   clip_grad_norm: true
@@ -28,8 +28,8 @@ data:
   dataset_path: "data/"
   content_path: "data/coco"
   style_path: "data/style"
-  image_size: 256
-  crop_size: 224
+  image_size: 512
+  crop_size: 448
   train_content_size: 20000
   train_style_size: 1500
   val_content_size: 2000
