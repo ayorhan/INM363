@@ -21,6 +21,7 @@ from .metrics import compute_metrics
 from .losses import StyleTransferLoss
 from .config import StyleTransferConfig
 from utils.metrics import MetricsLogger
+from models.CycleGAN import CycleGAN
 
 class Validator:
     """Handles model validation and visualization"""
@@ -282,12 +283,13 @@ def validate(model, val_loader, metrics, config, device):
                 batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
                         for k, v in batch.items()}
                 
-                # Generate outputs
-                outputs = model(batch)
-                
-                # Ensure outputs is a dictionary
-                if not isinstance(outputs, dict):
-                    outputs = {'generated': outputs}
+                # Handle CycleGAN differently
+                if isinstance(model, CycleGAN):
+                    outputs = {'generated': model(batch['content'], direction='AB')}
+                else:
+                    outputs = model(batch)
+                    if not isinstance(outputs, dict):
+                        outputs = {'generated': outputs}
                 
                 # Compute metrics
                 batch_metrics = {
