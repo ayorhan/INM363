@@ -25,7 +25,7 @@ import argparse
 
 from utils.config import load_config, StyleTransferConfig
 from utils.dataloader import StyleTransferDataset
-from utils.losses import StyleTransferLoss
+from utils.losses import StyleTransferLoss, CycleGANLoss
 from utils.validation import Validator, ValidationCallback
 from models import get_model
 from evaluation_scripts.evaluate_model import evaluate_model
@@ -120,6 +120,60 @@ def create_dataloaders(config: StyleTransferConfig,
     
     return train_loader, val_loader
 
+def get_loss_function(config: StyleTransferConfig):
+    """Get appropriate loss function based on model type"""
+    model_type = config.model.model_type
+    
+    if model_type == 'cyclegan':
+        return CycleGANLoss(config)
+    else:  # johnson, adain
+        return StyleTransferLoss(config)
+
+def train_step(model, batch, loss_fn, optimizer, config):
+    """Single training step with appropriate loss computation"""
+    device = next(model.parameters()).device  # Get device from model
+    model_type = config.model.model_type
+    
+    if model_type == 'cyclegan':
+        # CycleGAN training step
+        real_A = batch['content'].to(device)
+        real_B = batch['style'].to(device)
+        
+        # Forward cycle
+        fake_B = model(real_A, direction='AB')
+        cycle_A = model(fake_B, direction='BA')
+        identity_A = model(real_A, direction='BA')
+        
+        # Backward cycle
+        fake_A = model(real_B, direction='BA')
+        cycle_B = model(fake_A, direction='AB')
+        identity_B = model(real_B, direction='AB')
+        
+        # Compute losses
+        losses = loss_fn(real_A, real_B, fake_A, fake_B, 
+                        cycle_A, cycle_B, identity_A, identity_B)
+                        
+    else:  # johnson, adain
+        # Style transfer training step
+        content = batch['content'].to(device)
+        style = batch['style'].to(device)
+        
+        # Generate stylized image
+        output = model(content)
+        
+        # Compute losses
+        losses = loss_fn.compute_losses(output, batch)
+    
+    # Compute total loss
+    total_loss = sum(losses.values())
+    
+    # Optimization step
+    optimizer.zero_grad()
+    total_loss.backward()
+    optimizer.step()
+    
+    return losses
+
 def train(config_path: str):
     """Main training function"""
     # Load configuration
@@ -149,7 +203,7 @@ def train(config_path: str):
     model = model.to(device)
     
     # Initialize loss functions
-    loss_fn = StyleTransferLoss(config)
+    loss_fn = get_loss_function(config)
     
     # Initialize optimizer
     optimizer = torch.optim.Adam(
@@ -162,7 +216,7 @@ def train(config_path: str):
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
         T_max=config.training.num_epochs,
-        eta_min=config.training.min_lr
+        eta_min=getattr(config.training, 'min_lr', 1e-6)
     )
     
     # Initialize validator
@@ -185,24 +239,8 @@ def train(config_path: str):
                         for k, v in batch.items()}
                 
                 # Forward pass
-                outputs = model(content=batch['content'], style=batch['style'])
-                
-                # Compute losses
-                losses = loss_fn.compute_losses(outputs, batch)
+                losses = train_step(model, batch, loss_fn, optimizer, config)
                 total_loss = sum(losses.values())
-                
-                # Backward pass
-                optimizer.zero_grad()
-                total_loss.backward()
-                
-                # Gradient clipping (if enabled)
-                if hasattr(config.training, 'clip_grad_norm'):
-                    torch.nn.utils.clip_grad_norm_(
-                        model.parameters(), 
-                        config.training.clip_grad_norm
-                    )
-                
-                optimizer.step()
                 
                 # Update progress bar
                 pbar.set_postfix({

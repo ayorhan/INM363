@@ -6,73 +6,15 @@ import torch
 import torch.nn as nn
 from typing import Dict, Any, Optional
 
-from utils.config import StyleTransferConfig
+from utils.config import StyleTransferConfig, ModelConfig
 
-from .AdaIN import AdaIN
-from .AdaINPlusPlus import AdaINPlusPlusModel
-from .ArtFlow import ArtFlow
-from .AttentionGAN import AttentionGAN
-from .CartoonGAN import CartoonGAN
-from .CNNMRF import CNNMRF
 from .CycleGAN import CycleGAN
-from .CycleGANVC import CycleGANVC
-from .DeepImageAnalogy import DeepImageAnalogy
-from .FastPhotoStyle import FastPhotoStyle
-from .FUNIT import FUNIT
-from .GatysModel import GatysModel
 from .JohnsonModel import JohnsonModel
-from .LinearStyleTransfer import LinearStyleTransfer
-from .LST import LST
-from .MSGNet import MSGNet
-from .MUNIT import MUNIT
-from .NeuralDoodle import NeuralDoodle
-from .PhotoWCT import PhotoWCT
-from .Pix2Pix import Pix2Pix
-from .ReStyle import ReStyle
-from .SANet import SANet
-from .StarGAN import StarGAN
-from .STROTSS import STROTSS
-from .StyleFormer import StyleFormer
-from .StyleGAN2 import StyleGAN2
-#from .StyleGAN2ADA import StyleGAN2ADA
-from .StyleGANNADAv2 import StyleGANNADAv2
-from .StyleMixer import StyleMixerModel
-from .UGATIT import UGATIT
-
 
 class ModelRegistry:
     """Registry for all available models"""
     _models = {
-        'adain': AdaIN,
-        'adainplusplus': AdaINPlusPlusModel,
-        'artflow': ArtFlow,
-        'attentiongan': AttentionGAN,
-        'cartoongan': CartoonGAN,
-        'cnnmrf': CNNMRF,
         'cyclegan': CycleGAN,
-        'cycleganvc': CycleGANVC,
-        'deepimageanalogy': DeepImageAnalogy,
-        'fastphotostyle': FastPhotoStyle,
-        'funit': FUNIT,
-        'gatysmodel': GatysModel,
-        'johnsonmodel': JohnsonModel,
-        'linearstyletransfer': LinearStyleTransfer,
-        'lst': LST,
-        'msgnet': MSGNet,
-        'munit': MUNIT,
-        'neuraldoodle': NeuralDoodle,
-        'photowct': PhotoWCT,
-        'pix2pix': Pix2Pix,
-        'restyle': ReStyle,
-        'sanet': SANet,
-        'stargan': StarGAN,
-        'strotss': STROTSS,
-        'styleformer': StyleFormer,
-        'stylegan2': StyleGAN2,
-#        'stylegan2ada': StyleGAN2ADA,
-        'stylegannadav2': StyleGANNADAv2,
-        'style_mixer': StyleMixerModel,
-        'ugatit': UGATIT,
         'johnson': JohnsonModel
     }
     
@@ -91,23 +33,35 @@ class ModelRegistry:
         """List all registered models"""
         return list(cls._models.keys())
 
-def get_model(config: StyleTransferConfig):
-    """Get appropriate model based on configuration"""
-    model_type = config.model.model_type.lower()
-    model_config = config.get_model_config()
+MODEL_MAPPING = {
+    'johnson': JohnsonModel,
+    'cyclegan': CycleGAN
+}
+
+def get_model(config: StyleTransferConfig) -> nn.Module:
+    """Get appropriate model based on config"""
+    model_config = config.model
+    model_type = model_config.model_type
     
-    MODEL_MAPPING = {
-        'adain': lambda: AdaIN(),
-        'adainplusplus': lambda: AdaINPlusPlusModel(model_config),
-        'stylegan2': lambda: StyleGAN2(model_config),
-    #    'stylegan2ada': lambda: StyleGAN2ADA(model_config),
-        'style_mixer': lambda: StyleMixerModel(model_config)
-    }
-    
-    if model_type not in MODEL_MAPPING:
-        raise ValueError(f"Unsupported model type: {model_type}")
-        
-    return MODEL_MAPPING[model_type]()
+    if model_type == 'cyclegan':
+        return CycleGAN({
+            'input_channels': model_config.input_channels,
+            'output_channels': model_config.output_channels,
+            'base_filters': model_config.base_filters,
+            'n_residual_blocks': model_config.n_residual_blocks,
+            'use_dropout': model_config.use_dropout
+        })
+    else:  # johnson, adain
+        return JohnsonModel({
+            'input_channels': model_config.input_channels,
+            'output_channels': model_config.output_channels,
+            'base_filters': model_config.base_filters,
+            'n_residuals': model_config.n_residuals,
+            'use_dropout': model_config.use_dropout,
+            'norm_type': model_config.norm_type,
+            'content_layers': model_config.content_layers,
+            'style_layers': model_config.style_layers
+        })
 
 def load_pretrained_weights(model: nn.Module, weights_path: str) -> None:
     """
@@ -148,40 +102,11 @@ def get_model_parameters(model_type: str) -> Dict[str, Any]:
         Dictionary of default parameters
     """
     defaults = {
-        'adain': {
-            'encoder_type': 'vgg19',
-            'decoder_type': 'basic',
-            'content_layers': ['relu4_1'],
-            'style_layers': ['relu1_1', 'relu2_1', 'relu3_1', 'relu4_1'],
-        },
-        'styleformer': {
-            'img_size': 256,
-            'patch_size': 16,
-            'embed_dim': 512,
-            'depth': 6,
-            'num_heads': 8,
-        },
-        'strotss': {
-            'content_weight': 1.0,
-            'style_weight': 1.0,
-            'reg_weight': 1e-4,
-        },
-        'restyle': {
-            'num_iterations': 5,
-            'use_attention': True,
-            'feature_layers': ['relu1_1', 'relu2_1', 'relu3_1'],
-        },
         'cyclegan': {
             'ngf': 64,
             'ndf': 64,
             'n_residual_blocks': 9,
             'use_dropout': True,
-        },
-        'pix2pix': {
-            'input_channels': 3,
-            'output_channels': 3,
-            'base_filters': 64,
-            'n_layers': 3,
         },
         'johnson': {
             'input_channels': 3,

@@ -136,8 +136,13 @@ class StyleTransferLoss(nn.Module):
     """Combined loss for style transfer"""
     def __init__(self, config):
         super().__init__()
-        self.content_weight = getattr(config.model, 'content_weight', 1.0)
-        self.style_weight = getattr(config.model, 'style_weight', 10.0)
+        # Get weights from training config instead of model config
+        self.content_weight = config.training.content_weight
+        self.style_weight = config.training.style_weight
+        
+        # Get layers from model config
+        self.content_layers = config.model.content_layers
+        self.style_layers = config.model.style_layers
         
         # Load VGG model and move it to GPU
         self.vgg = vgg19(pretrained=True).features.eval()
@@ -161,11 +166,9 @@ class StyleTransferLoss(nn.Module):
         }
         
         # Extract required layers
-        self.content_layers = ['relu4_2']
-        self.style_layers = ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3']
         self.layers = nn.ModuleDict()
-        
         current_block = nn.Sequential()
+        
         for name, layer in self.vgg.named_children():
             current_block.add_module(name, layer)
             if name in [self.layer_mapping[l] for l in self.content_layers + self.style_layers]:
@@ -225,3 +228,39 @@ class StyleTransferLoss(nn.Module):
         losses['style'] = self.style_weight * style_loss
         
         return losses 
+
+class CycleGANLoss(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        # Get weights from training config
+        self.lambda_A = config.training.lambda_A
+        self.lambda_B = config.training.lambda_B
+        self.lambda_identity = config.training.lambda_identity
+        
+        # GAN loss type (default to MSE loss)
+        self.criterion = nn.MSELoss()
+        
+    def forward(self, real_A, real_B, fake_A, fake_B, 
+                cycle_A, cycle_B, identity_A=None, identity_B=None):
+        # Adversarial loss
+        loss_G_A = self.criterion(fake_B, torch.ones_like(fake_B))
+        loss_G_B = self.criterion(fake_A, torch.ones_like(fake_A))
+        
+        # Cycle consistency loss
+        loss_cycle_A = self.lambda_A * self.criterion(cycle_A, real_A)
+        loss_cycle_B = self.lambda_B * self.criterion(cycle_B, real_B)
+        
+        # Identity loss (optional)
+        loss_identity = 0
+        if identity_A is not None and identity_B is not None:
+            loss_identity = (self.lambda_identity * 
+                           (self.criterion(identity_A, real_A) + 
+                            self.criterion(identity_B, real_B)))
+            
+        return {
+            'G_A': loss_G_A,
+            'G_B': loss_G_B,
+            'cycle_A': loss_cycle_A,
+            'cycle_B': loss_cycle_B,
+            'identity': loss_identity
+        }

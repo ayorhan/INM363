@@ -15,8 +15,6 @@ import datetime
 from utils.metrics import StyleTransferMetrics, MetricsLogger
 from utils.dataloader import create_dataloader
 from models import get_model
-from models.AdaIN import AdaIN
-from models.AdaINPlusPlus import AdaINPlusPlusModel
 
 def evaluate_model(config_path: str, checkpoint_path: str, output_path: str):
     """Evaluate a trained model using multiple metrics"""
@@ -92,12 +90,7 @@ def evaluate_model(config_path: str, checkpoint_path: str, output_path: str):
             print(f"Style image range: [{batch['style'].min():.3f}, {batch['style'].max():.3f}]")
             
             # Generate outputs
-            if isinstance(model, AdaIN):
-                outputs = {'generated': model(batch['content'], batch['style'])}
-            elif isinstance(model, AdaINPlusPlusModel):
-                outputs = {'generated': model.style_transfer(batch['content'], [batch['style']])}
-            else:
-                outputs = model(batch)
+            outputs = model(batch)
                 
             # Check generated image range
             print(f"Generated image range: [{outputs['generated'].min():.3f}, {outputs['generated'].max():.3f}]")

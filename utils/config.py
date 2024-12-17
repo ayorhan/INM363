@@ -19,6 +19,7 @@ class TrainingConfig:
     num_workers: int = 4
     save_interval: int = 1000
     validation_interval: int = 500
+    min_lr: float = 0.00001
     
 @dataclass
 class ModelConfig:

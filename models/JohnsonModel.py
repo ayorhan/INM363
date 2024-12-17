@@ -60,42 +60,70 @@ class JohnsonModel(nn.Module):
     """
     Enhanced Johnson model with improved architecture and features
     """
-    def __init__(self, input_channels: int = 3, 
-                 base_filters: int = 64,
-                 n_residuals: int = 5,
-                 use_dropout: bool = True):
-        super(JohnsonModel, self).__init__()
-
-        # Initial convolution with reflection padding
+    def __init__(self, config):
+        super().__init__()
+        # Extract model parameters from config
+        self.input_channels = config['input_channels']
+        self.output_channels = config['output_channels']
+        self.base_filters = config['base_filters']
+        self.n_residuals = config['n_residuals']
+        self.use_dropout = config['use_dropout']
+        self.norm_type = config['norm_type']
+        self.content_layers = config['content_layers']
+        self.style_layers = config['style_layers']
+        
+        # Initial convolution block
         self.initial = nn.Sequential(
-            nn.ReflectionPad2d(4),  # Better border handling
-            nn.Conv2d(input_channels, base_filters, kernel_size=9),
-            nn.InstanceNorm2d(base_filters, affine=True),
+            nn.ReflectionPad2d(3),
+            nn.Conv2d(self.input_channels, self.base_filters, kernel_size=7),
+            nn.InstanceNorm2d(self.base_filters),
             nn.ReLU(inplace=True)
         )
-
-        # Downsampling with skip connections
+        
+        # Downsampling blocks
         self.down_blocks = nn.ModuleList([
-            self._build_down_block(base_filters, base_filters * 2),
-            self._build_down_block(base_filters * 2, base_filters * 4)
+            self._build_down_block(self.base_filters, self.base_filters * 2),
+            self._build_down_block(self.base_filters * 2, self.base_filters * 4)
         ])
-
-        # Enhanced residual blocks with dropout option
-        self.residuals = nn.ModuleList([
-            ResidualBlock(base_filters * 4, use_dropout)
-            for _ in range(n_residuals)
+        
+        # Residual blocks
+        self.residual_blocks = nn.ModuleList([
+            ResidualBlock(self.base_filters * 4, self.use_dropout)
+            for _ in range(self.n_residuals)
         ])
-
-        # Upsampling with skip connections
+        
+        # Upsampling blocks with correct channel dimensions
         self.up_blocks = nn.ModuleList([
-            self._build_up_block(base_filters * 4, base_filters * 2),
-            self._build_up_block(base_filters * 2, base_filters)
+            nn.Sequential(
+                nn.ConvTranspose2d(
+                    in_channels=self.base_filters * 4,  # 256
+                    out_channels=self.base_filters * 2,  # 128
+                    kernel_size=3,
+                    stride=2,
+                    padding=1,
+                    output_padding=1
+                ),
+                nn.InstanceNorm2d(self.base_filters * 2),
+                nn.ReLU(inplace=True)
+            ),
+            nn.Sequential(
+                nn.ConvTranspose2d(
+                    in_channels=self.base_filters * 2,  # 128
+                    out_channels=self.base_filters,      # 64
+                    kernel_size=3,
+                    stride=2,
+                    padding=1,
+                    output_padding=1
+                ),
+                nn.InstanceNorm2d(self.base_filters),
+                nn.ReLU(inplace=True)
+            )
         ])
-
-        # Output convolution
+        
+        # Final output layer
         self.output = nn.Sequential(
-            nn.ReflectionPad2d(4),
-            nn.Conv2d(base_filters, input_channels, kernel_size=9),
+            nn.ReflectionPad2d(3),
+            nn.Conv2d(self.base_filters, self.output_channels, kernel_size=7),
             nn.Tanh()
         )
         
@@ -111,13 +139,18 @@ class JohnsonModel(nn.Module):
             nn.ReLU(inplace=True)
         )
 
-    def _build_up_block(self, in_channels: int, out_channels: int) -> nn.Sequential:
-        """Build an upsampling block with improved architecture"""
+    def _build_up_block(self, in_channels, out_channels):
+        """Build an upsampling block with correct channel dimensions"""
         return nn.Sequential(
-            nn.ConvTranspose2d(in_channels, out_channels,
-                              kernel_size=3, stride=2,
-                              padding=1, output_padding=1),
-            nn.InstanceNorm2d(out_channels, affine=True),
+            nn.ConvTranspose2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=3,
+                stride=2,
+                padding=1,
+                output_padding=1
+            ),
+            nn.InstanceNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
     
@@ -133,24 +166,19 @@ class JohnsonModel(nn.Module):
         # Initial features
         x = self.initial(x)
         
-        # Store skip connections
-        skip_connections = []
-        
-        # Downsampling with skip connections
+        # Downsampling
         for down_block in self.down_blocks:
-            skip_connections.append(x)
             x = down_block(x)
         
         # Residual blocks
-        for res_block in self.residuals:
+        for res_block in self.residual_blocks:
             x = res_block(x)
         
-        # Upsampling with skip connections
-        for up_block, skip in zip(self.up_blocks, 
-                                reversed(skip_connections)):
+        # Upsampling (no skip connections)
+        for up_block in self.up_blocks:
             x = up_block(x)
-            x = torch.cat([x, skip], dim=1)
         
+        # Final output
         return self.output(x)
 
 class EnhancedPerceptualLoss(nn.Module):

@@ -79,13 +79,13 @@ class Generator(nn.Module):
             for _ in range(n_residuals)
         ])
         
-        # Upsampling blocks
+        # Modified upsampling blocks (matching JohnsonModel)
         self.up_blocks = nn.ModuleList([
             self._build_up_block(base_filters * 4, base_filters * 2),
             self._build_up_block(base_filters * 2, base_filters)
         ])
         
-        # Output convolution
+        # Output layer
         self.output = nn.Sequential(
             nn.ReflectionPad2d(3),
             nn.Conv2d(base_filters, output_channels, kernel_size=7),
@@ -119,26 +119,20 @@ class Generator(nn.Module):
                 nn.init.constant_(m.bias, 0)
                 
     def forward(self, x):
-        # Initial convolution
+        # Initial features
         x = self.initial(x)
-        
-        # Store skip connections
-        skip_connections = []
         
         # Downsampling
         for down_block in self.down_blocks:
-            skip_connections.append(x)
             x = down_block(x)
             
         # Residual blocks
         for res_block in self.residual_blocks:
             x = res_block(x)
             
-        # Upsampling with skip connections
-        for up_block, skip in zip(self.up_blocks, 
-                                reversed(skip_connections)):
+        # Upsampling (no skip connections)
+        for up_block in self.up_blocks:
             x = up_block(x)
-            x = torch.cat([x, skip], dim=1)
             
         return self.output(x)
 
@@ -201,34 +195,41 @@ class CycleGAN(nn.Module):
     def __init__(self, config):
         super(CycleGAN, self).__init__()
         
+        # Extract model parameters from config
+        input_channels = config['input_channels']
+        output_channels = config['output_channels']
+        base_filters = config['base_filters']
+        n_residual_blocks = config['n_residual_blocks']
+        use_dropout = config['use_dropout']
+        
         # Generators
         self.G_AB = Generator(
-            input_channels=config.get('input_channels', 3),
-            output_channels=config.get('output_channels', 3),
-            n_residuals=config.get('n_residuals', 9),
-            base_filters=config.get('base_filters', 64),
-            use_dropout=config.get('use_dropout', True)
+            input_channels=input_channels,
+            output_channels=output_channels,
+            n_residuals=n_residual_blocks,
+            base_filters=base_filters,
+            use_dropout=use_dropout
         )
         
         self.G_BA = Generator(
-            input_channels=config.get('input_channels', 3),
-            output_channels=config.get('output_channels', 3),
-            n_residuals=config.get('n_residuals', 9),
-            base_filters=config.get('base_filters', 64),
-            use_dropout=config.get('use_dropout', True)
+            input_channels=input_channels,
+            output_channels=output_channels,
+            n_residuals=n_residual_blocks,
+            base_filters=base_filters,
+            use_dropout=use_dropout
         )
         
         # Discriminators
         self.D_A = Discriminator(
-            input_channels=config.get('input_channels', 3),
-            base_filters=config.get('base_filters', 64),
-            n_layers=config.get('n_layers', 3)
+            input_channels=input_channels,
+            base_filters=base_filters,
+            n_layers=3  # Default value as per paper
         )
         
         self.D_B = Discriminator(
-            input_channels=config.get('input_channels', 3),
-            base_filters=config.get('base_filters', 64),
-            n_layers=config.get('n_layers', 3)
+            input_channels=input_channels,
+            base_filters=base_filters,
+            n_layers=3  # Default value as per paper
         )
         
     def forward(self, x, direction='AB'):
