@@ -253,20 +253,18 @@ class MetricsLogger:
     """Logger for tracking metrics during training"""
     def __init__(self):
         self.metrics = {}
-        
-    def update(self, new_metrics: Dict[str, float]) -> None:
-        """Update metrics with new values"""
-        for key, value in new_metrics.items():
-            if key not in self.metrics:
-                self.metrics[key] = []
-            self.metrics[key].append(value)
+        self.counts = {}
     
-    def get_average(self) -> Dict[str, float]:
-        """Get average of all tracked metrics"""
-        return {
-            key: np.mean(values)
-            for key, values in self.metrics.items()
-        }
+    def update(self, batch_metrics):
+        for key, value in batch_metrics.items():
+            if key not in self.metrics:
+                self.metrics[key] = 0
+                self.counts[key] = 0
+            self.metrics[key] += value
+            self.counts[key] += 1
+    
+    def get_average(self):
+        return {k: self.metrics[k] / self.counts[k] for k in self.metrics}
     
     def reset(self) -> None:
         """Reset all metrics"""

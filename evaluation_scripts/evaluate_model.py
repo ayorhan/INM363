@@ -11,6 +11,7 @@ import argparse
 import yaml
 from typing import Dict, Any
 import datetime
+import os
 
 from utils.metrics import StyleTransferMetrics, MetricsLogger
 from utils.dataloader import create_dataloader
@@ -66,8 +67,14 @@ def evaluate_model(config_path: str, checkpoint_path: str, output_path: str):
     
     # Create model and load checkpoint
     model = get_model(config_obj)
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    
+    # Ensure checkpoint_path exists and is valid
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+    else:
+        print(f"Warning: Checkpoint not found at {checkpoint_path}")
+    
     model = model.to(device)
     model.eval()
     
@@ -75,7 +82,7 @@ def evaluate_model(config_path: str, checkpoint_path: str, output_path: str):
     val_dataloader = create_dataloader(config_obj, 'val')
     
     # Initialize metrics
-    metrics = StyleTransferMetrics(device=config['device'])
+    metrics = StyleTransferMetrics(device=device)
     logger = MetricsLogger()
     
     # Evaluation loop

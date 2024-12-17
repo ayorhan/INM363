@@ -20,6 +20,7 @@ import logging
 from .metrics import compute_metrics
 from .losses import StyleTransferLoss
 from .config import StyleTransferConfig
+from utils.metrics import MetricsLogger
 
 class Validator:
     """Handles model validation and visualization"""
@@ -269,3 +270,39 @@ class ValidationCallback:
             'config': self.validator.config  # Save config for reproducibility
         }, save_path)
         return save_path
+
+def validate(model, val_loader, metrics, config, device):
+    model.eval()
+    logger = MetricsLogger()
+    
+    with torch.no_grad():
+        for batch in tqdm(val_loader, desc="Validation"):
+            try:
+                # Move data to device
+                batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+                        for k, v in batch.items()}
+                
+                # Generate outputs
+                outputs = model(batch)
+                
+                # Ensure outputs is a dictionary
+                if not isinstance(outputs, dict):
+                    outputs = {'generated': outputs}
+                
+                # Compute metrics
+                batch_metrics = {
+                    'content_loss': metrics.compute_content_loss(
+                        outputs['generated'], batch['content']
+                    ),
+                    'style_loss': metrics.compute_style_loss(
+                        outputs['generated'], batch['style']
+                    )
+                }
+                
+                logger.update(batch_metrics)
+                
+            except Exception as e:
+                logging.error(f"Error processing batch: {str(e)}")
+                continue
+    
+    return logger.get_average()
