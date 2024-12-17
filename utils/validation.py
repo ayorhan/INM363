@@ -105,9 +105,6 @@ class Validator:
             real_A = batch['content']
             real_B = batch['style']
             
-            # Access model config as dictionary
-            model_config = self.config.model if hasattr(self.config, 'model') else self.config['model']
-            
             fake_B = self.model(real_A, direction='AB')
             cycle_A = self.model(fake_B, direction='BA')
             identity_A = self.model(real_A, direction='BA')
@@ -130,7 +127,6 @@ class Validator:
         try:
             output = self.model(batch['content'])
             losses = self.loss_fn.compute_losses(output, batch)
-            
             # Compute additional metrics
             losses['content_similarity'] = self._compute_content_similarity(
                 output, batch['content'])
@@ -138,7 +134,6 @@ class Validator:
                 output, batch['style'])
             losses['output'] = output  # Store generated output for visualization
             return losses
-            
         except Exception as e:
             self.logger.error(f"Style transfer validation failed: {str(e)}")
             raise
