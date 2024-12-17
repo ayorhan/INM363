@@ -146,62 +146,43 @@ class Validator:
     
     def _save_validation_images(self, outputs, batch, epoch, batch_idx):
         """Save validation images with clear labels"""
-        # Create model-specific output directory
-        model_name = self.config.model.model_type if hasattr(self.config, 'model') else self.config['model']['model_type']
-        output_dir = Path(self.config.logging.output_dir if hasattr(self.config, 'logging') 
-                         else self.config['logging']['output_dir']) / 'validation' / model_name
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create visualization grid
-        vis_images = []
-        labels = []        
-        
-        # Add content, style, and generated image triplets
-        if isinstance(batch, dict) and 'content' in batch and 'style' in batch:
-            # Convert outputs tensor to dictionary format
-            if isinstance(outputs, torch.Tensor):
-                generated = outputs
-            else:
-                generated = outputs.get('generated', outputs)
+        try:
+            # Create model-specific output directory
+            model_name = self.config['model']['model_type']
+            output_dir = Path(self.config['logging']['output_dir']) / 'validation' / model_name
+            output_dir.mkdir(parents=True, exist_ok=True)
             
-            content = batch['content']
-            style = batch['style']
+            # Create visualization grid
+            vis_images = []
+            if isinstance(batch, dict) and 'content' in batch and 'style' in batch:
+                content = batch['content']
+                style = batch['style']
+                n = min(content.size(0), style.size(0))
+                
+                for i in range(n):
+                    vis_images.extend([
+                        content[i].cpu(),
+                        style[i].cpu(),
+                        outputs[i].cpu() if isinstance(outputs, torch.Tensor) else outputs['generated'][i].cpu()
+                    ])
             
-            # Take first n images from batch
-            n = min(content.size(0), generated.size(0), style.size(0))
-            
-            for i in range(n):
-                vis_images.extend([
-                    content[i].cpu(),    # Content image
-                    style[i].cpu(),      # Style image
-                    generated[i].cpu()    # Generated image
-                ])
-                labels.extend(['Content', 'Style', 'Generated'])
-        
-        # Create grid with labels
-        grid = make_grid(torch.stack(vis_images), 
-                        nrow=3,  # 3 columns for content-style-generated triplets
-                        normalize=True,
-                        padding=5)
-        
-        # Add text labels using PIL
-        grid_img = transforms.ToPILImage()(grid)
-        draw = ImageDraw.Draw(grid_img)
-        
-        # Save with model name prefix and style indication
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{model_name}_validation_epoch{epoch}_batch{batch_idx}_{timestamp}.png"
-        save_path = output_dir / filename
-        grid_img.save(save_path)
-        
-        # Log to wandb
-        if self.config['logging'].get('use_wandb', False):
-            wandb.log({
-                'validation_samples': wandb.Image(grid),
-                'epoch': epoch
-            })
-        
-        
+            # Create and save grid
+            if vis_images:
+                grid = make_grid(torch.stack(vis_images), nrow=3, normalize=True)
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"{model_name}_validation_epoch{epoch}_batch{batch_idx}_{timestamp}.png"
+                save_path = output_dir / filename
+                save_image(grid, save_path)
+                
+                # Only log to wandb if explicitly enabled
+                if self.config['logging'].get('use_wandb', False) and wandb.run is not None:
+                    wandb.log({
+                        'validation_samples': wandb.Image(grid),
+                        'epoch': epoch
+                    })
+                
+        except Exception as e:
+            self.logger.error(f"Failed to save validation images: {str(e)}")
     
     def compute_fid(self) -> float:
         """Compute FID score"""
