@@ -64,7 +64,7 @@ class Validator:
                         batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
                                 for k, v in batch.items()}
                         
-                        # Handle CycleGAN differently based on model instance
+                        # Handle different model types
                         if isinstance(self.model, CycleGAN):
                             metrics = self._validate_cyclegan_batch(batch)
                         else:
@@ -72,14 +72,12 @@ class Validator:
                         
                         # Update metrics
                         for k, v in metrics.items():
-                            val_metrics[k] = val_metrics.get(k, 0) + v
+                            if k != 'output':
+                                val_metrics[k] = val_metrics.get(k, 0) + v.item()
                         
                         # Save validation images periodically
-                        if batch_idx % 100 == 0:  # Hardcoded interval for now
-                            try:
-                                self._save_validation_images(metrics.get('output'), batch, epoch, batch_idx)
-                            except Exception as e:
-                                self.logger.error(f"Failed to save validation images: {str(e)}")
+                        if batch_idx % 10 == 0:
+                            self._save_validation_images(metrics['output'], batch, epoch, batch_idx)
                 
                     except Exception as e:
                         self.logger.error(f"Error processing batch {batch_idx}: {str(e)}")
@@ -87,9 +85,7 @@ class Validator:
                 
                 # Average metrics
                 val_metrics = {k: v / total_batches for k, v in val_metrics.items()}
-                # Add val_loss as average of all losses
-                val_metrics['val_loss'] = sum(v for k, v in val_metrics.items() 
-                                            if k not in ['output'])
+                val_metrics['val_loss'] = sum(v for k, v in val_metrics.items() if k != 'output')
                 
                 return val_metrics
                 
@@ -123,8 +119,10 @@ class Validator:
     def _validate_style_transfer_batch(self, batch: Dict[str, torch.Tensor]) -> Dict[str, Any]:
         """Handle style transfer validation for a single batch"""
         try:
+            # Pass only content tensor to Johnson model
             output = self.model(batch['content'])
             losses = self.loss_fn.compute_losses(output, batch)
+            
             # Compute additional metrics
             losses['content_similarity'] = self._compute_content_similarity(
                 output, batch['content'])
