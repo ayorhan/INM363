@@ -46,12 +46,7 @@ class Validator:
         """Run validation loop"""
         try:
             self.model.eval()
-            total_val_loss = 0
             val_metrics = {}
-            
-            # Initialize additional metrics
-            content_similarity = 0
-            style_similarity = 0
             total_batches = len(self.val_loader)
             
             with torch.no_grad():
@@ -61,7 +56,8 @@ class Validator:
                         batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
                                 for k, v in batch.items()}
                         
-                        if self.config['model']['model_type'] == 'cyclegan':
+                        # Handle CycleGAN differently based on model instance
+                        if isinstance(self.model, CycleGAN):
                             metrics = self._validate_cyclegan_batch(batch)
                         else:
                             metrics = self._validate_style_transfer_batch(batch)
@@ -71,7 +67,7 @@ class Validator:
                             val_metrics[k] = val_metrics.get(k, 0) + v
                         
                         # Save validation images periodically
-                        if batch_idx % self.config['logging'].get('validation_image_interval', 100) == 0:
+                        if batch_idx % 100 == 0:  # Hardcoded interval for now
                             try:
                                 self._save_validation_images(metrics.get('output'), batch, epoch, batch_idx)
                             except Exception as e:
@@ -83,15 +79,6 @@ class Validator:
                 
                 # Average metrics
                 val_metrics = {k: v / total_batches for k, v in val_metrics.items()}
-                
-                # Save best model
-                if val_metrics['val_loss'] < self.best_val_loss:
-                    try:
-                        self.best_val_loss = val_metrics['val_loss']
-                        self.best_model_path = self._save_model(epoch, val_metrics['val_loss'])
-                        self.logger.info(f"Saved new best model with loss: {val_metrics['val_loss']:.4f}")
-                    except Exception as e:
-                        self.logger.error(f"Failed to save best model: {str(e)}")
                 
                 return val_metrics
                 
