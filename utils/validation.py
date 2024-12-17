@@ -70,10 +70,10 @@ class Validator:
                         else:
                             metrics = self._validate_style_transfer_batch(batch)
                         
-                        # Update metrics
+                        # Update metrics, excluding output tensor
                         for k, v in metrics.items():
                             if k != 'output':
-                                val_metrics[k] = val_metrics.get(k, 0) + v.item()
+                                val_metrics[k] = val_metrics.get(k, 0) + float(v)
                         
                         # Save validation images periodically
                         if batch_idx % 10 == 0:
@@ -85,7 +85,7 @@ class Validator:
                 
                 # Average metrics
                 val_metrics = {k: v / total_batches for k, v in val_metrics.items()}
-                val_metrics['val_loss'] = sum(v for k, v in val_metrics.items() if k != 'output')
+                val_metrics['val_loss'] = sum(v for k, v in val_metrics.items())
                 
                 return val_metrics
                 
@@ -123,13 +123,17 @@ class Validator:
             output = self.model(batch['content'])
             losses = self.loss_fn.compute_losses(output, batch)
             
-            # Compute additional metrics
-            losses['content_similarity'] = self._compute_content_similarity(
-                output, batch['content'])
-            losses['style_similarity'] = self._compute_style_similarity(
-                output, batch['style'])
-            losses['output'] = output  # Store generated output for visualization
-            return losses
+            # Convert tensor metrics to float
+            metrics = {}
+            for k, v in losses.items():
+                if isinstance(v, torch.Tensor):
+                    metrics[k] = v.item()
+                else:
+                    metrics[k] = float(v)
+            
+            metrics['output'] = output  # Keep output tensor for visualization
+            return metrics
+            
         except Exception as e:
             self.logger.error(f"Style transfer validation failed: {str(e)}")
             raise
