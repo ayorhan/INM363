@@ -33,7 +33,15 @@ class Validator:
         self.model = model
         self.val_loader = val_dataloader
         self.loss_fn = loss_fn
-        self.config = config if isinstance(config, dict) else config.__dict__
+        # Convert config to dict if it's not already
+        if isinstance(config, dict):
+            self.config = config
+        else:
+            self.config = {
+                'model': config.model.__dict__,
+                'logging': config.logging.__dict__,
+                'training': config.training.__dict__
+            }
         self.device = next(model.parameters()).device
         self.best_model_path = None
         self.best_val_loss = float('inf')
