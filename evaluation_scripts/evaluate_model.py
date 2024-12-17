@@ -16,6 +16,7 @@ import os
 from utils.metrics import StyleTransferMetrics, MetricsLogger
 from utils.dataloader import create_dataloader
 from models import get_model
+from models.CycleGAN import CycleGAN
 
 def evaluate_model(config_path: str, checkpoint_path: str, output_path: str):
     """Evaluate a trained model using multiple metrics"""
@@ -89,16 +90,21 @@ def evaluate_model(config_path: str, checkpoint_path: str, output_path: str):
     with torch.no_grad():
         for batch in tqdm(val_dataloader, desc="Evaluating"):
             # Move data to device and normalize if needed
-            batch = {k: v.to(config['device']) if isinstance(v, torch.Tensor) else v 
+            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
                     for k, v in batch.items()}
             
             # Check and print value ranges before processing
             print(f"Content image range: [{batch['content'].min():.3f}, {batch['content'].max():.3f}]")
             print(f"Style image range: [{batch['style'].min():.3f}, {batch['style'].max():.3f}]")
             
-            # Generate outputs
-            outputs = model(batch)
-                
+            # Generate outputs - handle CycleGAN differently
+            if isinstance(model, CycleGAN):
+                outputs = {'generated': model(batch['content'], direction='AB')}
+            else:
+                outputs = model(batch)
+                if not isinstance(outputs, dict):
+                    outputs = {'generated': outputs}
+            
             # Check generated image range
             print(f"Generated image range: [{outputs['generated'].min():.3f}, {outputs['generated'].max():.3f}]")
             
