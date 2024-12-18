@@ -13,8 +13,8 @@ model:
 
 training:
   batch_size: 4
-  num_epochs: 1 #00
-  learning_rate: 0.001
+  num_epochs: 100
+  learning_rate: 0.0005
   beta1: 0.9
   beta2: 0.999
   scheduler_type: "step"
@@ -31,11 +31,11 @@ data:
   dataset_path: "data/"
   content_path: "data/coco"
   style_path: "data/style"
-  image_size: 512
-  crop_size: 448
-  train_content_size: 2000 #0
+  image_size: 256
+  crop_size: 256
+  train_content_size: 20000
   train_style_size: 1500
-  val_content_size: 200 #0
+  val_content_size: 2000
   val_style_size: 150
   use_augmentation: true
   num_workers: 4
