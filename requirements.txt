@@ -1,4 +1,6 @@
 numpy<2.0
+scipy>=1.9.0
+scikit-learn>=1.0.0
 torch
 torchvision
 wandb
