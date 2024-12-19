@@ -79,16 +79,22 @@ def evaluate_checkpoints(config_path: str, checkpoints_dir: str, output_dir: str
     logging.info(f"Loading config from {config_path}")
     config = StyleTransferConfig(config_path)
     
+    # Modify validation size for minimal but meaningful processing
+    config.data.val_content_size = min(config.data.val_content_size, 40)   # 10 batches of 4 images
+    config.data.val_style_size = min(config.data.val_style_size, 20)     # 5 different styles
+    config.data.batch_size = 4  # Ensure batch size is 4
+    
     # Setup device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logging.info(f"Using device: {device}")
+    logging.info(f"Using {config.data.val_content_size} content images and {config.data.val_style_size} style images")
     
     # Convert ModelConfig to dictionary
     model_config = config.model.__dict__
     
     # Initialize model and metrics
     logging.info("Initializing model and metrics")
-    model = JohnsonModel(model_config)  # Pass the dictionary version
+    model = JohnsonModel(model_config)
     model = model.to(device)
     metrics = StyleTransferMetrics(device=device)
     
@@ -109,7 +115,6 @@ def evaluate_checkpoints(config_path: str, checkpoints_dir: str, output_dir: str
     images_path = output_path / 'images'
     output_path.mkdir(parents=True, exist_ok=True)
     images_path.mkdir(parents=True, exist_ok=True)
-    logging.info(f"Created output directories at {output_dir}")
     
     results = {}
     
@@ -146,8 +151,8 @@ def evaluate_checkpoints(config_path: str, checkpoints_dir: str, output_dir: str
                 outputs = {'generated': model(batch['content'])}
                 outputs['generated'] = torch.clamp(outputs['generated'], 0, 1)
                 
-                # Save images periodically (every 10 batches)
-                if batch_idx % 10 == 0:
+                # Save images every 5 batches (2 saves per checkpoint with 10 total batches)
+                if batch_idx % 5 == 0:
                     save_validation_images(outputs, batch, epoch, batch_idx, epoch_image_dir)
                 
                 # Compute metrics
