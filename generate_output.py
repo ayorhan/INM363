@@ -25,6 +25,20 @@ def get_epoch_from_checkpoint(checkpoint_name):
     match = re.search(r'epoch(\d+)', checkpoint_name)
     return int(match.group(1)) if match else -1
 
+def filter_checkpoints_by_epoch(checkpoint_files):
+    """Select one checkpoint per epoch (the last one)"""
+    epoch_to_checkpoint = {}
+    for checkpoint in checkpoint_files:
+        epoch = get_epoch_from_checkpoint(checkpoint)
+        if epoch != -1:  # Valid epoch number found
+            # Keep the last checkpoint for each epoch (based on filename sorting)
+            if epoch not in epoch_to_checkpoint or checkpoint > epoch_to_checkpoint[epoch]:
+                epoch_to_checkpoint[epoch] = checkpoint
+    
+    # Get the sorted list of checkpoints (one per epoch)
+    selected_checkpoints = [epoch_to_checkpoint[epoch] for epoch in sorted(epoch_to_checkpoint.keys())]
+    return selected_checkpoints
+
 def save_validation_images(outputs, batch, epoch, batch_idx, output_dir):
     """Save validation images with content, style, and generated images side by side"""
     try:
@@ -104,11 +118,12 @@ def evaluate_checkpoints(config_path: str, checkpoints_dir: str, output_dir: str
     total_batches = len(val_dataloader)
     logging.info(f"Total validation batches: {total_batches}")
     
-    # Get all checkpoints and sort by epoch
-    checkpoint_files = [f for f in os.listdir(checkpoints_dir) if f.endswith('.pth')]
-    checkpoint_files.sort(key=get_epoch_from_checkpoint)
+    # Get all checkpoints and filter to one per epoch
+    all_checkpoint_files = [f for f in os.listdir(checkpoints_dir) if f.endswith('.pth')]
+    checkpoint_files = filter_checkpoints_by_epoch(all_checkpoint_files)
     total_checkpoints = len(checkpoint_files)
-    logging.info(f"Found {total_checkpoints} checkpoints to evaluate")
+    logging.info(f"Found {len(all_checkpoint_files)} total checkpoints")
+    logging.info(f"Selected {total_checkpoints} checkpoints (one per epoch) for evaluation")
     
     # Create output directories
     output_path = Path(output_dir)
