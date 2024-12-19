@@ -85,7 +85,7 @@ def evaluate_checkpoints(config_path: str, checkpoints_dir: str, output_dir: str
     
     # Initialize model and metrics
     logging.info("Initializing model and metrics")
-    model = JohnsonModel(config)
+    model = JohnsonModel(config.model)
     model = model.to(device)
     metrics = StyleTransferMetrics(device=device)
     
