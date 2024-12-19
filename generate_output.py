@@ -5,7 +5,7 @@ from tqdm import tqdm
 import re
 from models.JohnsonModel import JohnsonModel
 from utils.dataloader import create_dataloader
-from utils.config import Config, ModelConfig, DataConfig, TrainingConfig
+from utils.config import StyleTransferConfig, ModelConfig, DataConfig, TrainingConfig
 import yaml
 from utils.metrics import StyleTransferMetrics, MetricsLogger
 from torchvision.utils import save_image, make_grid
@@ -77,14 +77,7 @@ def evaluate_checkpoints(config_path: str, checkpoints_dir: str, output_dir: str
     
     # Load config
     logging.info(f"Loading config from {config_path}")
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    
-    # Create config object
-    model_config = ModelConfig(config['model'])
-    data_config = DataConfig(config['data'])
-    training_config = TrainingConfig(config.get('training', {}))
-    config_obj = Config(model_config, data_config, training_config)
+    config = StyleTransferConfig(config_path)
     
     # Setup device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -92,13 +85,13 @@ def evaluate_checkpoints(config_path: str, checkpoints_dir: str, output_dir: str
     
     # Initialize model and metrics
     logging.info("Initializing model and metrics")
-    model = JohnsonModel(config_obj)
+    model = JohnsonModel(config)
     model = model.to(device)
     metrics = StyleTransferMetrics(device=device)
     
     # Get validation dataloader
     logging.info("Creating validation dataloader")
-    val_dataloader = create_dataloader(config_obj, 'val')
+    val_dataloader = create_dataloader(config, 'val')
     total_batches = len(val_dataloader)
     logging.info(f"Total validation batches: {total_batches}")
     
