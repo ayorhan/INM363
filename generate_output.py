@@ -83,9 +83,12 @@ def evaluate_checkpoints(config_path: str, checkpoints_dir: str, output_dir: str
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logging.info(f"Using device: {device}")
     
+    # Convert ModelConfig to dictionary
+    model_config = config.model.__dict__
+    
     # Initialize model and metrics
     logging.info("Initializing model and metrics")
-    model = JohnsonModel(config.model)
+    model = JohnsonModel(model_config)  # Pass the dictionary version
     model = model.to(device)
     metrics = StyleTransferMetrics(device=device)
     
