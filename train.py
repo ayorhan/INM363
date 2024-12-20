@@ -132,7 +132,7 @@ def get_loss_function(config: StyleTransferConfig):
 
 def train_step(model, batch, loss_fn, optimizer, config):
     """Single training step with appropriate loss computation"""
-    device = next(model.parameters()).device  # Get device from model
+    device = next(model.parameters()).device
     model_type = config.model.model_type
     
     if model_type == 'cyclegan':
@@ -154,6 +154,7 @@ def train_step(model, batch, loss_fn, optimizer, config):
         losses = loss_fn(real_A, real_B, fake_A, fake_B, 
                         cycle_A, cycle_B, identity_A, identity_B)
                         
+        outputs = {'generated': fake_B}
     else:  # johnson, adain
         # Style transfer training step
         content = batch['content'].to(device)
@@ -164,6 +165,8 @@ def train_step(model, batch, loss_fn, optimizer, config):
         
         # Compute losses
         losses = loss_fn.compute_losses(output, batch)
+        
+        outputs = {'generated': output}
     
     # Compute total loss
     total_loss = sum(losses.values())
@@ -173,7 +176,7 @@ def train_step(model, batch, loss_fn, optimizer, config):
     total_loss.backward()
     optimizer.step()
     
-    return losses
+    return losses, outputs
 
 def train(config_path: str):
     """Main training function"""
@@ -192,11 +195,7 @@ def train(config_path: str):
     )
     
     # Initialize wandb
-    if getattr(config, 'use_wandb', False):
-        wandb.init(
-            project="style-transfer",
-            config=config
-        )
+    use_wandb = initialize_wandb(config)
     
     # Initialize model
     model = get_model(config)
@@ -239,8 +238,8 @@ def train(config_path: str):
                 batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
                         for k, v in batch.items()}
                 
-                # Forward pass
-                losses = train_step(model, batch, loss_fn, optimizer, config)
+                # Forward pass and get losses
+                losses, outputs = train_step(model, batch, loss_fn, optimizer, config)
                 total_loss = sum(losses.values())
                 
                 # Update progress bar
@@ -249,27 +248,34 @@ def train(config_path: str):
                     **{k: v.item() for k, v in losses.items()}
                 })
                 
-                # Log to wandb
-                if hasattr(config, 'use_wandb') and config.use_wandb:
-                    wandb.log({
-                        'epoch': epoch,
+                # Log metrics and images
+                if use_wandb:
+                    log_metrics({
                         'total_loss': total_loss.item(),
                         'learning_rate': optimizer.param_groups[0]['lr'],
                         **{k: v.item() for k, v in losses.items()}
-                    })
+                    }, epoch * len(train_loader) + batch_idx)
                 
-                # Save checkpoints
-                if batch_idx % config.training.save_interval == 0:
-                    save_checkpoint(
-                        model, optimizer, epoch, batch_idx,
-                        total_loss.item(), config
-                    )
+                    if batch_idx % config.logging.log_interval == 0:
+                        log_metrics({
+                            'images/content': wandb.Image(batch['content'][0].cpu()),
+                            'images/style': wandb.Image(batch['style'][0].cpu()),
+                            'images/generated': wandb.Image(outputs['generated'][0].cpu())
+                        }, epoch * len(train_loader) + batch_idx)
         
         # Validation
         val_metrics = validation_callback(epoch, model)
         
-        # Update learning rate
+        # Log validation metrics
+        if use_wandb:
+            log_metrics(val_metrics, epoch, prefix='validation')
+        
+        # Update learning rate and log it
         scheduler.step()
+        if use_wandb:
+            log_metrics({
+                'learning_rate': scheduler.get_last_lr()[0]
+            }, epoch)
         
         # Early stopping
         if hasattr(config.training, 'early_stopping') and config.training.early_stopping:
@@ -465,6 +471,34 @@ def train_discriminator(model, real_A, real_B, fake_A, fake_B):
         'D_A': loss_D_A,
         'D_B': loss_D_B
     }
+
+def initialize_wandb(config: StyleTransferConfig) -> bool:
+    """Initialize Weights & Biases logging"""
+    if config.logging.use_wandb:
+        try:
+            wandb.init(
+                project=config.logging.project_name,
+                name=config.logging.run_name,
+                config={
+                    'model': config.model.__dict__,
+                    'training': config.training.__dict__,
+                    'data': config.data.__dict__,
+                    'logging': config.logging.__dict__
+                }
+            )
+            return True
+        except Exception as e:
+            logging.warning(f"Failed to initialize wandb: {str(e)}")
+            return False
+    return False
+
+def log_metrics(metrics: Dict[str, float], step: int, prefix: str = '') -> None:
+    """Log metrics to wandb if enabled"""
+    if wandb.run is not None:
+        wandb.log(
+            {f"{prefix}/{k}" if prefix else k: v for k, v in metrics.items()},
+            step=step
+        )
 
 if __name__ == "__main__":
     import argparse
