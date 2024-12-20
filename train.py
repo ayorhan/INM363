@@ -23,6 +23,7 @@ from typing import Dict, Any
 import datetime
 import argparse
 import torch.nn.functional as F
+from collections import defaultdict
 
 from utils.config import load_config, StyleTransferConfig
 from utils.dataloader import StyleTransferDataset
@@ -32,6 +33,7 @@ from models import get_model
 from evaluation_scripts.evaluate_model import evaluate_model
 from download_datasets import download_coco_images, download_style_images_kaggle
 from utils.metrics import StyleTransferMetrics
+from utils.logging_utils import setup_training_logger, log_training_step, log_validation_results, log_model_parameters
 
 def setup_logging(config: StyleTransferConfig) -> None:
     """Setup logging configuration"""
@@ -132,9 +134,10 @@ def get_loss_function(config: StyleTransferConfig):
         return StyleTransferLoss(config)
 
 def train_step(model, batch, loss_fn, optimizer, config):
-    """Single training step with appropriate loss computation"""
+    """Single training step with enhanced logging"""
     device = next(model.parameters()).device
     model_type = config.model.model_type
+    train_logger = logging.getLogger('training')
     
     if model_type == 'cyclegan':
         # CycleGAN training step
@@ -176,6 +179,12 @@ def train_step(model, batch, loss_fn, optimizer, config):
     optimizer.zero_grad()
     total_loss.backward()
     optimizer.step()
+    
+    # Add tensor statistics logging
+    if model_type == 'johnson':
+        train_logger.debug(f"Content tensor range: [{batch['content'].min():.2f}, {batch['content'].max():.2f}]")
+        train_logger.debug(f"Style tensor range: [{batch['style'].min():.2f}, {batch['style'].max():.2f}]")
+        train_logger.debug(f"Output tensor range: [{outputs['generated'].min():.2f}, {outputs['generated'].max():.2f}]")
     
     return losses, outputs
 
@@ -345,6 +354,14 @@ def save_checkpoint(model: nn.Module,
     }, save_path)
 
 def train_cyclegan(model, train_loader, val_loader, config, device, logger):
+    # Setup enhanced logging
+    train_logger = setup_training_logger()
+    train_logger.info("Starting CycleGAN training")
+    log_model_parameters(train_logger, model)
+    
+    # Add metrics initialization
+    metrics = StyleTransferMetrics(device)
+    
     best_val_loss = float('inf')
     best_model_path = None
     
@@ -362,88 +379,73 @@ def train_cyclegan(model, train_loader, val_loader, config, device, logger):
 
     for epoch in range(config.training.num_epochs):
         model.train()
-        running_losses = {
-            'total_loss': 0.0,
-            'G_AB': 0.0, 
-            'G_BA': 0.0,
-            'D_A': 0.0,
-            'D_B': 0.0,
-            'cycle_A': 0.0,
-            'cycle_B': 0.0,
-            'identity_A': 0.0,
-            'identity_B': 0.0
-        }
+        running_losses = defaultdict(float)
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
         
-        with tqdm(train_loader, desc=f'Epoch {epoch+1}/{config.training.num_epochs}') as pbar:
-            for batch_idx, batch in enumerate(pbar):
-                real_A = batch['content'].to(device)
-                real_B = batch['style'].to(device)
+        for batch_idx, batch in enumerate(pbar):
+            real_A = batch['content'].to(device)
+            real_B = batch['style'].to(device)
+            
+            # Train Generators
+            optimizer_G.zero_grad()
+            
+            # Forward cycle
+            fake_B = model.G_AB(real_A)
+            cycle_A = model.G_BA(fake_B)
+            
+            # Backward cycle
+            fake_A = model.G_BA(real_B)
+            cycle_B = model.G_AB(fake_A)
+            
+            # Identity loss
+            identity_A = model.G_BA(real_A)
+            identity_B = model.G_AB(real_B)
+            
+            # Calculate and log all losses
+            loss_G, loss_dict = calculate_generator_loss(
+                model, real_A, real_B, fake_A, fake_B,
+                cycle_A, cycle_B, identity_A, identity_B,
+                config
+            )
+            
+            loss_G.backward()
+            optimizer_G.step()
+            
+            # Train Discriminators
+            optimizer_D.zero_grad()
+            loss_D, d_loss_dict = train_discriminator(
+                model, real_A, real_B, fake_A.detach(), fake_B.detach()
+            )
+            
+            loss_D.backward()
+            optimizer_D.step()
+            
+            # Update running losses
+            running_losses['total_loss'] += (loss_G.item() + loss_D.item())
+            for k, v in loss_dict.items():
+                running_losses[k] += v.item()
+            for k, v in d_loss_dict.items():
+                running_losses[k] += v.item()
+            
+            # Enhanced logging
+            if batch_idx % config.logging.log_interval == 0:
+                log_training_step(train_logger, 'cyclegan', epoch, batch_idx, 
+                                loss_dict, len(train_loader))
                 
-                # Train Generators
-                optimizer_G.zero_grad()
-                
-                # Forward cycle
-                fake_B = model.G_AB(real_A)
-                cycle_A = model.G_BA(fake_B)
-                
-                # Backward cycle
-                fake_A = model.G_BA(real_B)
-                cycle_B = model.G_AB(fake_A)
-                
-                # Identity loss
-                identity_A = model.G_BA(real_A)
-                identity_B = model.G_AB(real_B)
-                
-                # Calculate and log all losses
-                loss_G, loss_dict = calculate_generator_loss(
-                    model, real_A, real_B, fake_A, fake_B,
-                    cycle_A, cycle_B, identity_A, identity_B,
-                    config
-                )
-                
-                loss_G.backward()
-                optimizer_G.step()
-                
-                # Train Discriminators
-                optimizer_D.zero_grad()
-                loss_D, d_loss_dict = train_discriminator(
-                    model, real_A, real_B, fake_A.detach(), fake_B.detach()
-                )
-                
-                loss_D.backward()
-                optimizer_D.step()
-                
-                # Update running losses
-                running_losses['total_loss'] += (loss_G.item() + loss_D.item())
-                for k, v in loss_dict.items():
-                    running_losses[k] += v.item()
-                for k, v in d_loss_dict.items():
-                    running_losses[k] += v.item()
-                
-                # Update progress bar with running averages
-                avg_losses = {k: v/(batch_idx + 1) for k, v in running_losses.items()}
-                pbar.set_postfix(avg_losses)
-                
-                # Log metrics at metric_interval
-                if batch_idx % config.logging.metric_interval == 0:
-                    metrics = {
-                        'train/content_loss': loss_dict['content'],
-                        'train/style_loss': loss_dict['style'],
-                        'train/total_loss': sum(loss_dict.values()).item(),
-                    }
-                    log_metrics(metrics, epoch * len(train_loader) + batch_idx)
-                
-                # Log images at log_interval (separate from metrics)
-                if batch_idx % config.logging.log_interval == 0:
-                    log_training_progress(logger, epoch, batch, loss_dict, 
-                                       fake_A, fake_B, cycle_A, cycle_B, 
-                                       identity_A, identity_B)
-
+                # Log parameter gradients
+                if logger.isEnabledFor(logging.DEBUG):
+                    for name, param in model.named_parameters():
+                        if param.grad is not None:
+                            train_logger.debug(f"Gradient stats for {name}: "
+                                           f"Mean: {param.grad.mean():.4f}, "
+                                           f"Std: {param.grad.std():.4f}")
+        
         # Log epoch summary
         log_epoch_summary(logger, epoch, running_losses, len(train_loader))
 
         # Validation
         val_metrics = validate(model, val_loader, metrics, config, device)
+        log_validation_results(train_logger, 'cyclegan', epoch, val_metrics)
         
         # Save best model if enabled
         if config.logging.save_best:
