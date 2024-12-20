@@ -27,10 +27,11 @@ import torch.nn.functional as F
 from utils.config import load_config, StyleTransferConfig
 from utils.dataloader import StyleTransferDataset
 from utils.losses import StyleTransferLoss, CycleGANLoss
-from utils.validation import Validator, ValidationCallback
+from utils.validation import Validator, ValidationCallback, validate
 from models import get_model
 from evaluation_scripts.evaluate_model import evaluate_model
 from download_datasets import download_coco_images, download_style_images_kaggle
+from utils.metrics import StyleTransferMetrics
 
 def setup_logging(config: StyleTransferConfig) -> None:
     """Setup logging configuration"""
@@ -226,6 +227,9 @@ def train(config_path: str):
         frequency=config.training.validation_interval
     )
     
+    # Before the training loop:
+    metrics = StyleTransferMetrics(device)
+    
     # Training loop
     best_val_loss = float('inf')
     for epoch in range(config.training.num_epochs):
@@ -264,7 +268,28 @@ def train(config_path: str):
                         }, epoch * len(train_loader) + batch_idx)
         
         # Validation
-        val_metrics = validation_callback(epoch, model)
+        if epoch % config.training.validation_interval == 0:
+            val_metrics = validate(model, val_loader, metrics, config, device)
+            
+            # Save best model if enabled
+            if config.logging.save_best:
+                current_val_loss = val_metrics['content_loss'] + val_metrics['style_loss']
+                if current_val_loss < best_val_loss:
+                    best_val_loss = current_val_loss
+                    best_model_path = os.path.join(
+                        config.logging.save_dir,
+                        f'best_model_epoch_{epoch}.pth'
+                    )
+                    torch.save({
+                        'epoch': epoch,
+                        'model_state_dict': model.state_dict(),
+                        'val_loss': best_val_loss,
+                    }, best_model_path)
+                    
+                    # Remove previous best model if it exists
+                    for f in os.listdir(config.logging.save_dir):
+                        if f.startswith('best_model_epoch_') and f != os.path.basename(best_model_path):
+                            os.remove(os.path.join(config.logging.save_dir, f))
         
         # Log validation metrics
         if use_wandb:
@@ -320,6 +345,9 @@ def save_checkpoint(model: nn.Module,
     }, save_path)
 
 def train_cyclegan(model, train_loader, val_loader, config, device, logger):
+    best_val_loss = float('inf')
+    best_model_path = None
+    
     # Initialize optimizers
     optimizer_G = torch.optim.Adam(
         list(model.G_AB.parameters()) + list(model.G_BA.parameters()),
@@ -395,9 +423,47 @@ def train_cyclegan(model, train_loader, val_loader, config, device, logger):
                 # Update progress bar with running averages
                 avg_losses = {k: v/(batch_idx + 1) for k, v in running_losses.items()}
                 pbar.set_postfix(avg_losses)
+                
+                # Log metrics at metric_interval
+                if batch_idx % config.logging.metric_interval == 0:
+                    metrics = {
+                        'train/content_loss': loss_dict['content'],
+                        'train/style_loss': loss_dict['style'],
+                        'train/total_loss': sum(loss_dict.values()).item(),
+                    }
+                    log_metrics(metrics, epoch * len(train_loader) + batch_idx)
+                
+                # Log images at log_interval (separate from metrics)
+                if batch_idx % config.logging.log_interval == 0:
+                    log_training_progress(logger, epoch, batch, loss_dict, 
+                                       fake_A, fake_B, cycle_A, cycle_B, 
+                                       identity_A, identity_B)
 
         # Log epoch summary
         log_epoch_summary(logger, epoch, running_losses, len(train_loader))
+
+        # Validation
+        val_metrics = validate(model, val_loader, metrics, config, device)
+        
+        # Save best model if enabled
+        if config.logging.save_best:
+            current_val_loss = val_metrics['content_loss'] + val_metrics['style_loss']
+            if current_val_loss < best_val_loss:
+                best_val_loss = current_val_loss
+                best_model_path = os.path.join(
+                    config.logging.save_dir,
+                    f'best_model_epoch_{epoch}.pth'
+                )
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'val_loss': best_val_loss,
+                }, best_model_path)
+                
+                # Remove previous best model if it exists
+                for f in os.listdir(config.logging.save_dir):
+                    if f.startswith('best_model_epoch_') and f != os.path.basename(best_model_path):
+                        os.remove(os.path.join(config.logging.save_dir, f))
 
 def log_training_progress(logger, epoch, batch, losses, fake_A, fake_B, cycle_A, cycle_B, identity_A, identity_B):
     """Log training progress including images and metrics"""

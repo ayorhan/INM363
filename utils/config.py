@@ -54,6 +54,8 @@ class LoggingConfig:
     log_interval: int = 100
     save_dir: str = "checkpoints"
     output_dir: str = "outputs"
+    save_best: bool = False
+    metric_interval: int = 100
     
 class StyleTransferConfig:
     """Complete configuration for style transfer training"""

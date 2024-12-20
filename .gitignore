@@ -26,6 +26,7 @@ torch_utils/
 checkpoints/
 outputs/
 evaluation_results/
+wandb/
 
 # Logs
 *.log

@@ -11,7 +11,7 @@ model:
   init_type: "normal"
 
 training:
-  batch_size: 8
+  batch_size: 8 #32
   num_epochs: 200
   learning_rate: 0.0002
   beta1: 0.5
@@ -39,7 +39,7 @@ data:
   val_content_size: 2000
   val_style_size: 150
   use_augmentation: true
-  num_workers: 96
+  num_workers: 4 #96
 
 logging:
   use_wandb: true

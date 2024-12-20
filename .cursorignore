@@ -2,6 +2,10 @@
 __pycache__/
 data/
 torch_utils/
+wandb/
+checkpoints/
+outputs/
+evaluation_results/
 
 # Ignore all `.log` files
 *.log
