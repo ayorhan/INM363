@@ -11,7 +11,7 @@ model:
   init_type: "normal"
 
 training:
-  batch_size: 4
+  batch_size: 8
   num_epochs: 200
   learning_rate: 0.0002
   beta1: 0.5
@@ -22,8 +22,11 @@ training:
   lambda_B: 10.0
   lambda_identity: 0.5
   pool_size: 50
-  save_interval: 1000
-  validation_interval: 375 
+  save_interval: 500
+  validation_interval: 200
+  early_stopping: true
+  patience: 10
+   
 
 data:
   dataset_path: "data/"
@@ -36,12 +39,14 @@ data:
   val_content_size: 2000
   val_style_size: 150
   use_augmentation: true
-  num_workers: 4
+  num_workers: 96
 
 logging:
   use_wandb: true
   project_name: "style-transfer"
   run_name: "cyclegan-baseline"
-  log_interval: 100
+  log_interval: 50
   save_dir: "checkpoints/cyclegan"
-  output_dir: "outputs/cyclegan" 
+  output_dir: "outputs/cyclegan"
+  save_best: true
+  metric_interval: 100
