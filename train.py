@@ -22,6 +22,7 @@ import logging
 from typing import Dict, Any
 import datetime
 import argparse
+import torch.nn.functional as F
 
 from utils.config import load_config, StyleTransferConfig
 from utils.dataloader import StyleTransferDataset
@@ -311,6 +312,165 @@ def save_checkpoint(model: nn.Module,
         'optimizer_state_dict': optimizer.state_dict(),
         'loss': loss,
     }, save_path)
+
+def train_cyclegan(model, train_loader, val_loader, config, device, logger):
+    # Initialize optimizers
+    optimizer_G = torch.optim.Adam(
+        list(model.G_AB.parameters()) + list(model.G_BA.parameters()),
+        lr=config.training.learning_rate,
+        betas=(config.training.beta1, config.training.beta2)
+    )
+    optimizer_D = torch.optim.Adam(
+        list(model.D_A.parameters()) + list(model.D_B.parameters()),
+        lr=config.training.learning_rate,
+        betas=(config.training.beta1, config.training.beta2)
+    )
+
+    # Loss tracking
+    losses = {
+        'D_A': [], 'D_B': [],
+        'G_AB': [], 'G_BA': [],
+        'cycle_A': [], 'cycle_B': [],
+        'identity_A': [], 'identity_B': []
+    }
+
+    for epoch in range(config.training.num_epochs):
+        model.train()
+        epoch_losses = {k: 0.0 for k in losses.keys()}
+        num_batches = 0
+
+        for batch in tqdm(train_loader, desc=f'Epoch {epoch}'):
+            real_A = batch['content'].to(device)
+            real_B = batch['style'].to(device)
+            
+            # Train Generators
+            optimizer_G.zero_grad()
+            
+            # Forward cycle
+            fake_B = model.G_AB(real_A)
+            cycle_A = model.G_BA(fake_B)
+            
+            # Backward cycle
+            fake_A = model.G_BA(real_B)
+            cycle_B = model.G_AB(fake_A)
+            
+            # Identity loss
+            identity_A = model.G_BA(real_A)
+            identity_B = model.G_AB(real_B)
+            
+            # Calculate and log all losses
+            loss_G, loss_dict = calculate_generator_loss(
+                model, real_A, real_B, fake_A, fake_B,
+                cycle_A, cycle_B, identity_A, identity_B,
+                config
+            )
+            
+            loss_G.backward()
+            optimizer_G.step()
+            
+            # Train Discriminators
+            optimizer_D.zero_grad()
+            loss_D, d_loss_dict = train_discriminator(
+                model, real_A, real_B, fake_A.detach(), fake_B.detach()
+            )
+            
+            loss_D.backward()
+            optimizer_D.step()
+            
+            # Update loss tracking
+            for k, v in loss_dict.items():
+                epoch_losses[k] += v.item()
+            for k, v in d_loss_dict.items():
+                epoch_losses[k] += v.item()
+            num_batches += 1
+
+            # Log intermediate results
+            if num_batches % config.logging.log_interval == 0:
+                log_training_progress(
+                    logger,
+                    epoch,
+                    num_batches,
+                    {k: v/num_batches for k, v in epoch_losses.items()},
+                    fake_A, fake_B,
+                    cycle_A, cycle_B,
+                    identity_A, identity_B
+                )
+
+        # Log epoch summary
+        log_epoch_summary(logger, epoch, epoch_losses, num_batches)
+
+def log_training_progress(logger, epoch, batch, losses, fake_A, fake_B, cycle_A, cycle_B, identity_A, identity_B):
+    """Log training progress including images and metrics"""
+    # Log losses
+    for name, value in losses.items():
+        logger.log({f'train/{name}_loss': value})
+    
+    # Log example images
+    logger.log({
+        'images/fake_A': wandb.Image(fake_A[0].cpu()),
+        'images/fake_B': wandb.Image(fake_B[0].cpu()),
+        'images/cycle_A': wandb.Image(cycle_A[0].cpu()),
+        'images/cycle_B': wandb.Image(cycle_B[0].cpu()),
+        'images/identity_A': wandb.Image(identity_A[0].cpu()),
+        'images/identity_B': wandb.Image(identity_B[0].cpu())
+    })
+
+def log_epoch_summary(logger, epoch, losses, num_batches):
+    """Log summary of epoch results"""
+    avg_losses = {k: v/num_batches for k, v in losses.items()}
+    
+    logger.log({
+        f'epoch/{k}_loss': v for k, v in avg_losses.items()
+    })
+    
+    print(f"\nEpoch {epoch} Summary:")
+    for k, v in avg_losses.items():
+        print(f"{k}_loss: {v:.4f}")
+
+def calculate_generator_loss(model, real_A, real_B, fake_A, fake_B, cycle_A, cycle_B, identity_A, identity_B, config):
+    # Adversarial loss
+    loss_G_AB = -torch.mean(model.D_B(fake_B))
+    loss_G_BA = -torch.mean(model.D_A(fake_A))
+    
+    # Cycle consistency loss
+    loss_cycle_A = F.l1_loss(cycle_A, real_A) * config.training.lambda_A
+    loss_cycle_B = F.l1_loss(cycle_B, real_B) * config.training.lambda_B
+    
+    # Identity loss
+    loss_identity_A = F.l1_loss(identity_A, real_A) * config.training.lambda_identity
+    loss_identity_B = F.l1_loss(identity_B, real_B) * config.training.lambda_identity
+    
+    # Total generator loss
+    loss_G = loss_G_AB + loss_G_BA + loss_cycle_A + loss_cycle_B + loss_identity_A + loss_identity_B
+    
+    # Return losses dictionary for logging
+    return loss_G, {
+        'G_AB': loss_G_AB,
+        'G_BA': loss_G_BA,
+        'cycle_A': loss_cycle_A,
+        'cycle_B': loss_cycle_B,
+        'identity_A': loss_identity_A,
+        'identity_B': loss_identity_B
+    }
+
+def train_discriminator(model, real_A, real_B, fake_A, fake_B):
+    # Real loss
+    loss_D_A_real = -torch.mean(model.D_A(real_A))
+    loss_D_B_real = -torch.mean(model.D_B(real_B))
+    
+    # Fake loss
+    loss_D_A_fake = torch.mean(model.D_A(fake_A))
+    loss_D_B_fake = torch.mean(model.D_B(fake_B))
+    
+    # Total discriminator loss
+    loss_D_A = (loss_D_A_real + loss_D_A_fake) * 0.5
+    loss_D_B = (loss_D_B_real + loss_D_B_fake) * 0.5
+    loss_D = loss_D_A + loss_D_B
+    
+    return loss_D, {
+        'D_A': loss_D_A,
+        'D_B': loss_D_B
+    }
 
 if __name__ == "__main__":
     import argparse

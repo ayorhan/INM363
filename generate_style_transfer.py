@@ -88,10 +88,18 @@ def generate_styled_image(
     # Load checkpoint
     print(f"Loading checkpoint from: {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location=device)
-    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-        model.load_state_dict(checkpoint['model_state_dict'])
+    if isinstance(checkpoint, dict):
+        if 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+        elif 'state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['state_dict'])
+        else:
+            model.load_state_dict(checkpoint)
     else:
         model.load_state_dict(checkpoint)
+    
+    # Print model status after loading
+    print(f"Model parameters loaded: {sum(p.numel() for p in model.parameters())}")
     
     model = model.to(device)
     model.eval()
@@ -104,21 +112,40 @@ def generate_styled_image(
     print(f"Style image: {style_path}")
     style_image = load_image(style_path, config.data.image_size).to(device)
     
+    # Print input image ranges
+    print(f"Content image range: {content_image.min().item():.3f} to {content_image.max().item():.3f}")
+    
     # Generate output
     print("\nGenerating styled image...")
     with torch.no_grad():
-        if hasattr(model, 'transfer'):
-            output = model.transfer(content_image, style_image)
-            print("Using transfer method for style application")
-        else:
-            # For models that only take content image (like Johnson)
+        if config.model.model_type.lower() == 'johnson':
+            # Johnson model takes only content image as input
             output = model(content_image)
-            print("Using direct model inference")
+            print("Using Johnson model inference")
+            print(f"Output tensor range: {output.min().item():.3f} to {output.max().item():.3f}")
+        elif config.model.model_type.lower() == 'cyclegan':
+            # CycleGAN takes only content image as input to G_AB
+            # Ensure input is in correct range [-1, 1]
+            content_input = content_image * 2 - 1
+            print(f"Input tensor range to CycleGAN: {content_input.min().item():.3f} to {content_input.max().item():.3f}")
+            
+            output = model(content_input, direction='AB')
+            print("Using CycleGAN generator")
+            print(f"Raw output tensor range: {output.min().item():.3f} to {output.max().item():.3f}")
+            
+            # Direct normalization to [0, 1] range for saving
+            output = (output + 1) * 0.5
+            print(f"Normalized output tensor range: {output.min().item():.3f} to {output.max().item():.3f}")
     
     # Save individual output
     print("\nSaving images...")
     output_image = output.cpu().squeeze(0)
-    save_image(torch.clamp(output_image * 0.5 + 0.5, 0, 1), output_path)
+    
+    # Ensure output is in [0, 1] range
+    output_image = torch.clamp(output_image, 0, 1)
+    print(f"Final output range: {output_image.min().item():.3f} to {output_image.max().item():.3f}")
+    
+    save_image(output_image, output_path)
     
     # Create and save comparison
     comparison_path = output_path.rsplit('.', 1)[0] + '_comparison.png'
