@@ -326,78 +326,72 @@ def train_cyclegan(model, train_loader, val_loader, config, device, logger):
         betas=(config.training.beta1, config.training.beta2)
     )
 
-    # Loss tracking
-    losses = {
-        'D_A': [], 'D_B': [],
-        'G_AB': [], 'G_BA': [],
-        'cycle_A': [], 'cycle_B': [],
-        'identity_A': [], 'identity_B': []
-    }
-
     for epoch in range(config.training.num_epochs):
         model.train()
-        epoch_losses = {k: 0.0 for k in losses.keys()}
-        num_batches = 0
-
-        for batch in tqdm(train_loader, desc=f'Epoch {epoch}'):
-            real_A = batch['content'].to(device)
-            real_B = batch['style'].to(device)
-            
-            # Train Generators
-            optimizer_G.zero_grad()
-            
-            # Forward cycle
-            fake_B = model.G_AB(real_A)
-            cycle_A = model.G_BA(fake_B)
-            
-            # Backward cycle
-            fake_A = model.G_BA(real_B)
-            cycle_B = model.G_AB(fake_A)
-            
-            # Identity loss
-            identity_A = model.G_BA(real_A)
-            identity_B = model.G_AB(real_B)
-            
-            # Calculate and log all losses
-            loss_G, loss_dict = calculate_generator_loss(
-                model, real_A, real_B, fake_A, fake_B,
-                cycle_A, cycle_B, identity_A, identity_B,
-                config
-            )
-            
-            loss_G.backward()
-            optimizer_G.step()
-            
-            # Train Discriminators
-            optimizer_D.zero_grad()
-            loss_D, d_loss_dict = train_discriminator(
-                model, real_A, real_B, fake_A.detach(), fake_B.detach()
-            )
-            
-            loss_D.backward()
-            optimizer_D.step()
-            
-            # Update loss tracking
-            for k, v in loss_dict.items():
-                epoch_losses[k] += v.item()
-            for k, v in d_loss_dict.items():
-                epoch_losses[k] += v.item()
-            num_batches += 1
-
-            # Log intermediate results
-            if num_batches % config.logging.log_interval == 0:
-                log_training_progress(
-                    logger,
-                    epoch,
-                    num_batches,
-                    {k: v/num_batches for k, v in epoch_losses.items()},
-                    fake_A, fake_B,
-                    cycle_A, cycle_B,
-                    identity_A, identity_B
+        running_losses = {
+            'total_loss': 0.0,
+            'G_AB': 0.0, 
+            'G_BA': 0.0,
+            'D_A': 0.0,
+            'D_B': 0.0,
+            'cycle_A': 0.0,
+            'cycle_B': 0.0,
+            'identity_A': 0.0,
+            'identity_B': 0.0
+        }
+        
+        with tqdm(train_loader, desc=f'Epoch {epoch+1}/{config.training.num_epochs}') as pbar:
+            for batch_idx, batch in enumerate(pbar):
+                real_A = batch['content'].to(device)
+                real_B = batch['style'].to(device)
+                
+                # Train Generators
+                optimizer_G.zero_grad()
+                
+                # Forward cycle
+                fake_B = model.G_AB(real_A)
+                cycle_A = model.G_BA(fake_B)
+                
+                # Backward cycle
+                fake_A = model.G_BA(real_B)
+                cycle_B = model.G_AB(fake_A)
+                
+                # Identity loss
+                identity_A = model.G_BA(real_A)
+                identity_B = model.G_AB(real_B)
+                
+                # Calculate and log all losses
+                loss_G, loss_dict = calculate_generator_loss(
+                    model, real_A, real_B, fake_A, fake_B,
+                    cycle_A, cycle_B, identity_A, identity_B,
+                    config
                 )
+                
+                loss_G.backward()
+                optimizer_G.step()
+                
+                # Train Discriminators
+                optimizer_D.zero_grad()
+                loss_D, d_loss_dict = train_discriminator(
+                    model, real_A, real_B, fake_A.detach(), fake_B.detach()
+                )
+                
+                loss_D.backward()
+                optimizer_D.step()
+                
+                # Update running losses
+                running_losses['total_loss'] += (loss_G.item() + loss_D.item())
+                for k, v in loss_dict.items():
+                    running_losses[k] += v.item()
+                for k, v in d_loss_dict.items():
+                    running_losses[k] += v.item()
+                
+                # Update progress bar with running averages
+                avg_losses = {k: v/(batch_idx + 1) for k, v in running_losses.items()}
+                pbar.set_postfix(avg_losses)
 
         # Log epoch summary
-        log_epoch_summary(logger, epoch, epoch_losses, num_batches)
+        log_epoch_summary(logger, epoch, running_losses, len(train_loader))
 
 def log_training_progress(logger, epoch, batch, losses, fake_A, fake_B, cycle_A, cycle_B, identity_A, identity_B):
     """Log training progress including images and metrics"""
