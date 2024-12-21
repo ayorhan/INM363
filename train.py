@@ -216,8 +216,7 @@ def train_step(model, batch, loss_fn, optimizer, config):
         # Feature statistics from VGG layers - with preprocessing
         preprocessed_output = loss_fn._preprocess(outputs['generated'])
         for layer_name in loss_fn.content_layers + loss_fn.style_layers:
-            layer_idx = loss_fn.layer_mapping[layer_name]
-            features = loss_fn.layers[layer_idx](preprocessed_output)
+            features = loss_fn.layers[layer_name](preprocessed_output)
             train_logger.debug(f"VGG {layer_name} features range: [{features.min():.2f}, {features.max():.2f}]")
     
     return losses, outputs
