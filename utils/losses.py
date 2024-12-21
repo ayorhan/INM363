@@ -208,7 +208,7 @@ class StyleTransferLoss(nn.Module):
     
     def compute_losses(self, generated, batch):
         # Preprocess images
-        generated = self._preprocess(generated)
+        generated_prep = self._preprocess(generated)
         content = self._preprocess(batch['content'].to(generated.device))
         style = self._preprocess(batch['style'].to(generated.device))
         
@@ -218,7 +218,7 @@ class StyleTransferLoss(nn.Module):
         style_features = {}
         
         # Extract features for each layer
-        x = generated
+        x = generated_prep
         x_content = content
         x_style = style
         
@@ -247,8 +247,8 @@ class StyleTransferLoss(nn.Module):
             style_gram = self.gram_matrix(style_features[name])
             style_loss += F.mse_loss(output_gram, style_gram)
         
-        # Total variation loss - using the raw generated image before preprocessing
-        tv_loss = self.tv_weight * self.total_variation_loss(batch['generated'])
+        # Total variation loss - using the raw generated image
+        tv_loss = self.tv_weight * self.total_variation_loss(generated)
         
         return {
             'content': self.content_weight * content_loss,
