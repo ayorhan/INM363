@@ -136,18 +136,24 @@ class StyleTransferLoss(nn.Module):
     """Combined loss for style transfer"""
     def __init__(self, config):
         super().__init__()
-        # Get weights from training config instead of model config
         self.content_weight = config.training.content_weight
         self.style_weight = config.training.style_weight
+        self.tv_weight = config.training.tv_weight
         
         # Get layers from model config
         self.content_layers = config.model.content_layers
         self.style_layers = config.model.style_layers
         
+        # VGG preprocessing
+        self.vgg_mean = torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1)
+        self.vgg_std = torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1)
+        
         # Load VGG model and move it to GPU
         self.vgg = vgg19(pretrained=True).features.eval()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.vgg = self.vgg.to(self.device)
+        self.vgg_mean = self.vgg_mean.to(self.device)
+        self.vgg_std = self.vgg_std.to(self.device)
         
         # Freeze VGG parameters
         for param in self.vgg.parameters():
@@ -186,9 +192,19 @@ class StyleTransferLoss(nn.Module):
         gram = torch.bmm(features, features.transpose(1, 2))
         return gram / (c * h * w)
     
-    def compute_losses(self, outputs: torch.Tensor, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """Compute content and style losses using VGG features"""
-        losses = {}
+    def _preprocess(self, x):
+        """Preprocess input for VGG"""
+        # Transform from [-1, 1] to [0, 1]
+        x = (x + 1) / 2
+        # Normalize with VGG mean and std
+        x = (x - self.vgg_mean) / self.vgg_std
+        return x
+    
+    def compute_losses(self, generated, batch):
+        # Preprocess images
+        generated = self._preprocess(generated)
+        content = self._preprocess(batch['content'].to(generated.device))
+        style = self._preprocess(batch['style'].to(generated.device))
         
         # Get VGG features
         output_features = {}
@@ -196,9 +212,9 @@ class StyleTransferLoss(nn.Module):
         style_features = {}
         
         # Extract features for each layer
-        x = outputs
-        x_content = batch['content']
-        x_style = batch['style']
+        x = generated
+        x_content = content
+        x_style = style
         
         for name, layer in self.layers.items():
             x = layer(x)
@@ -217,7 +233,6 @@ class StyleTransferLoss(nn.Module):
         content_loss = 0
         for name in [self.layer_mapping[l] for l in self.content_layers]:
             content_loss += F.mse_loss(output_features[name], content_features[name])
-        losses['content'] = self.content_weight * content_loss
         
         # Style loss
         style_loss = 0
@@ -225,9 +240,15 @@ class StyleTransferLoss(nn.Module):
             output_gram = self.gram_matrix(output_features[name])
             style_gram = self.gram_matrix(style_features[name])
             style_loss += F.mse_loss(output_gram, style_gram)
-        losses['style'] = self.style_weight * style_loss
         
-        return losses 
+        # Total variation loss
+        tv_loss = self.tv_weight * self.total_variation_loss(generated)
+        
+        return {
+            'content': self.content_weight * content_loss,
+            'style': self.style_weight * style_loss,
+            'tv': tv_loss
+        }
 
 class CycleGANLoss(nn.Module):
     def __init__(self, config):
