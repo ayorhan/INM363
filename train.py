@@ -429,8 +429,9 @@ def train_cyclegan(model, train_loader, val_loader, config, device, logger):
             
             # Enhanced logging
             if batch_idx % config.logging.log_interval == 0:
+                outputs = {'fake_B': fake_B, 'fake_A': fake_A}
                 log_training_step(train_logger, 'cyclegan', epoch, batch_idx, 
-                                loss_dict, len(train_loader))
+                                 loss_dict, outputs, len(train_loader))
                 
                 # Log parameter gradients
                 if logger.isEnabledFor(logging.DEBUG):

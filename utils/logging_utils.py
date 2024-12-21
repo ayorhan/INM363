@@ -8,25 +8,25 @@ import datetime
 
 def setup_training_logger(log_dir: str = 'logs'):
     """Setup logger to write to both file and console"""
-    # Create logs directory if it doesn't exist
     os.makedirs(log_dir, exist_ok=True)
     
-    # Create timestamp for log file
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     log_file = os.path.join(log_dir, f'training_{timestamp}.log')
     
-    # Setup logging configuration
+    # Set root logger to DEBUG to capture all levels
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,  # Changed from INFO to DEBUG
         format='%(asctime)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
         handlers=[
             logging.FileHandler(log_file),
-            logging.StreamHandler()  # This handles console output
+            logging.StreamHandler()
         ]
     )
     
-    return logging.getLogger('training')
+    logger = logging.getLogger('training')
+    logger.setLevel(logging.DEBUG)  # Ensure logger itself captures all levels
+    return logger
 
 def log_model_parameters(logger, model):
     """Log detailed model parameter statistics"""
