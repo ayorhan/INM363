@@ -12,7 +12,7 @@ model:
   style_layers: ["relu1_2", "relu2_2", "relu3_3", "relu4_3"]
 
 training:
-  batch_size: 4
+  batch_size: 32
   num_epochs: 100
   learning_rate: 0.001
   beta1: 0.9
@@ -38,7 +38,7 @@ data:
   val_content_size: 2000
   val_style_size: 150
   use_augmentation: true
-  num_workers: 4
+  num_workers: 16
 
 logging:
   use_wandb: true
