@@ -247,8 +247,8 @@ class StyleTransferLoss(nn.Module):
             style_gram = self.gram_matrix(style_features[name])
             style_loss += F.mse_loss(output_gram, style_gram)
         
-        # Total variation loss
-        tv_loss = self.tv_weight * self.total_variation_loss(generated)
+        # Total variation loss - using the raw generated image before preprocessing
+        tv_loss = self.tv_weight * self.total_variation_loss(batch['generated'])
         
         return {
             'content': self.content_weight * content_loss,
