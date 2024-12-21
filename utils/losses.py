@@ -250,8 +250,7 @@ class StyleTransferLoss(nn.Module):
             style_loss += F.mse_loss(output_gram, style_gram)
         
         # Total variation loss - using the raw generated image
-        tv_loss = self.total_variation_loss(generated)  # Get scalar tensor first
-        tv_loss = self.tv_weight * tv_loss  # Then multiply by weight
+        tv_loss = torch.tensor(self.tv_weight, device=generated.device) * self.total_variation_loss(generated)
         
         return {
             'content': self.content_weight * content_loss,
