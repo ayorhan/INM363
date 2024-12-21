@@ -166,13 +166,13 @@ class StyleTransferLoss(nn.Module):
         # Extract required layers
         self.layers = nn.ModuleDict()
         current_block = nn.Sequential()
-        last_layer = 0
         
         for name, layer in self.vgg.named_children():
-            current_block.add_module(name, layer)
-            if name in [self.layer_mapping[l] for l in self.content_layers + self.style_layers]:
-                self.layers[name] = current_block
-                current_block = nn.Sequential()
+            if int(name) <= max(int(self.layer_mapping[l]) for l in self.content_layers + self.style_layers):
+                current_block.add_module(name, layer)
+                if name in [self.layer_mapping[l] for l in self.content_layers + self.style_layers]:
+                    self.layers[name] = current_block
+                    current_block = nn.Sequential()
         
         # Move model to device and freeze parameters
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
