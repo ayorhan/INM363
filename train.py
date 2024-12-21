@@ -618,12 +618,21 @@ def monitor_losses(g_losses, d_losses, logger):
         elif value != value:  # Check for NaN
             logger.error(f"NaN loss detected - {name}")
 
-def create_progress_visualization(output_dir, model_type):
-    """Create an HTML file showing training progression"""
-    progress_dir = Path(output_dir) / 'training_progress'
-    epochs = sorted([d for d in progress_dir.iterdir() if d.is_dir()], 
-                   key=lambda x: int(x.name.split('_')[1]))
+def create_progress_visualization(output_dir: Path, model_type: str):
+    """Create a visualization of training progress"""
+    progress_dir = output_dir / 'training_progress'
+    if not progress_dir.exists():
+        return
+        
+    # Only look at directories that start with 'epoch_'
+    epochs = sorted([
+        d for d in progress_dir.iterdir() 
+        if d.is_dir() and d.name.startswith('epoch_')
+    ], key=lambda x: int(x.name.split('_')[1]))
     
+    if not epochs:
+        return
+        
     html_content = [
         '<!DOCTYPE html>',
         '<html>',
