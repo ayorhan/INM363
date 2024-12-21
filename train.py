@@ -256,6 +256,12 @@ def train(config_path: str):
     os.makedirs(config.logging.output_dir, exist_ok=True)  # For outputs
     os.makedirs('logs', exist_ok=True)  # For logging
     
+    # Initialize logger before training
+    train_logger = setup_training_logger()
+    
+    # Pass logger to train_cyclegan
+    train_cyclegan(model, train_loader, val_loader, config, device, train_logger)  # Use the same logger
+    
     # Training loop
     best_val_loss = float('inf')
     for epoch in range(config.training.num_epochs):
@@ -296,12 +302,19 @@ def train(config_path: str):
                 # Get the progress bar string and log it
                 progress_info = (f"Epoch {epoch+1}/{config.training.num_epochs}: "
                                 f"[{batch_idx}/{len(train_loader)}] "
-                                f"loss={total_loss.item():.2f}, "
-                                f"G_A={losses['G_AB'].item():.2f}, "
-                                f"G_B={losses['G_BA'].item():.2f}, "
-                                f"cycle_A={losses['cycle_A'].item():.2f}, "
-                                f"cycle_B={losses['cycle_B'].item():.2f}, "
-                                f"identity={losses['identity_A'].item():.2f}")
+                                f"loss={total_loss.item():.2f}")
+                
+                # Add optional loss components if they exist
+                if 'G_AB' in losses:
+                    progress_info += f", G_A={losses['G_AB'].item():.2f}"
+                if 'G_BA' in losses:
+                    progress_info += f", G_B={losses['G_BA'].item():.2f}"
+                if 'cycle_A' in losses:
+                    progress_info += f", cycle_A={losses['cycle_A'].item():.2f}"
+                if 'cycle_B' in losses:
+                    progress_info += f", cycle_B={losses['cycle_B'].item():.2f}"
+                if 'identity_A' in losses:
+                    progress_info += f", identity={losses['identity_A'].item():.2f}"
                 
                 train_logger.info(progress_info)
         
