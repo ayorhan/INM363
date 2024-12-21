@@ -197,9 +197,16 @@ class StyleTransferLoss(nn.Module):
     
     def total_variation_loss(self, x: torch.Tensor) -> torch.Tensor:
         """Total variation loss for smoothness"""
+        # Ensure input is a float tensor
+        if not x.is_floating_point():
+            x = x.float()
+        
+        # Calculate TV loss components
         h_tv = torch.mean(torch.abs(x[:, :, 1:, :] - x[:, :, :-1, :]))
         w_tv = torch.mean(torch.abs(x[:, :, :, 1:] - x[:, :, :, :-1]))
-        return h_tv + w_tv
+        
+        # Return scalar tensor
+        return (h_tv + w_tv).mean()  # Ensure we return a scalar tensor
     
     def compute_losses(self, generated, batch):
         # Preprocess images
@@ -243,7 +250,8 @@ class StyleTransferLoss(nn.Module):
             style_loss += F.mse_loss(output_gram, style_gram)
         
         # Total variation loss - using the raw generated image
-        tv_loss = self.tv_weight * self.total_variation_loss(generated)
+        tv_loss = self.total_variation_loss(generated)  # Get scalar tensor first
+        tv_loss = self.tv_weight * tv_loss  # Then multiply by weight
         
         return {
             'content': self.content_weight * content_loss,
