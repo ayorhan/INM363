@@ -565,22 +565,25 @@ def calculate_generator_loss(model, real_A, real_B, fake_A, fake_B, cycle_A, cyc
     }
 
 def train_discriminator(model, real_A, real_B, fake_A, fake_B):
-    # Real loss
-    loss_D_A_real = -torch.mean(model.D_A(real_A))
-    loss_D_B_real = -torch.mean(model.D_B(real_B))
+    # Real loss with labels
+    real_label = torch.ones(real_A.size(0), 1, device=real_A.device)
+    fake_label = torch.zeros(real_A.size(0), 1, device=real_A.device)
     
-    # Fake loss
-    loss_D_A_fake = torch.mean(model.D_A(fake_A))
-    loss_D_B_fake = torch.mean(model.D_B(fake_B))
-    
-    # Total discriminator loss
+    # D_A loss
+    loss_D_A_real = torch.nn.MSELoss()(model.D_A(real_A), real_label)
+    loss_D_A_fake = torch.nn.MSELoss()(model.D_A(fake_A.detach()), fake_label)
     loss_D_A = (loss_D_A_real + loss_D_A_fake) * 0.5
+    
+    # D_B loss
+    loss_D_B_real = torch.nn.MSELoss()(model.D_B(real_B), real_label)
+    loss_D_B_fake = torch.nn.MSELoss()(model.D_B(fake_B.detach()), fake_label)
     loss_D_B = (loss_D_B_real + loss_D_B_fake) * 0.5
+    
     loss_D = loss_D_A + loss_D_B
     
     return loss_D, {
-        'D_A': loss_D_A,
-        'D_B': loss_D_B
+        'D_A': loss_D_A.item(),
+        'D_B': loss_D_B.item()
     }
 
 def initialize_wandb(config: StyleTransferConfig) -> bool:
