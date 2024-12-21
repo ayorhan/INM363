@@ -145,18 +145,25 @@ class StyleTransferLoss(nn.Module):
         self.style_layers = config.model.style_layers
         
         # VGG preprocessing
-        self.vgg_mean = torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1)
-        self.vgg_std = torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1)
+        self.register_buffer('vgg_mean', torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1))
+        self.register_buffer('vgg_std', torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1))
         
-        # Load VGG model and move it to GPU
+        # Load VGG model
         self.vgg = vgg19(pretrained=True).features.eval()
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.vgg = self.vgg.to(self.device)
-        self.vgg_mean = self.vgg_mean.to(self.device)
-        self.vgg_std = self.vgg_std.to(self.device)
         
-        # Freeze VGG parameters
-        for param in self.vgg.parameters():
+        # Extract required layers
+        self.layers = nn.ModuleDict()
+        current_layer = nn.Sequential()
+        
+        for name, layer in self.vgg.named_children():
+            if name in [self.layer_mapping[l] for l in self.content_layers + self.style_layers]:
+                self.layers[name] = current_layer
+            current_layer.add_module(name, layer)
+        
+        # Move model to device and freeze parameters
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.to(self.device)
+        for param in self.parameters():
             param.requires_grad = False
         
         # Layer name mapping
@@ -171,20 +178,6 @@ class StyleTransferLoss(nn.Module):
             'relu5_3': '34', 'relu5_4': '36'
         }
         
-        # Extract required layers
-        self.layers = nn.ModuleDict()
-        current_block = nn.Sequential()
-        
-        for name, layer in self.vgg.named_children():
-            current_block.add_module(name, layer)
-            if name in [self.layer_mapping[l] for l in self.content_layers + self.style_layers]:
-                self.layers[name] = current_block
-                current_block = nn.Sequential()
-        
-        # Freeze parameters
-        for param in self.parameters():
-            param.requires_grad = False
-            
     def gram_matrix(self, x: torch.Tensor) -> torch.Tensor:
         """Compute Gram matrix for style loss"""
         b, c, h, w = x.size()
@@ -204,7 +197,7 @@ class StyleTransferLoss(nn.Module):
         """Total variation loss for smoothness"""
         h_tv = torch.mean(torch.abs(x[:, :, 1:, :] - x[:, :, :-1, :]))
         w_tv = torch.mean(torch.abs(x[:, :, :, 1:] - x[:, :, :, :-1]))
-        return torch.tensor(h_tv + w_tv, device=x.device, dtype=x.dtype)
+        return h_tv + w_tv
     
     def compute_losses(self, generated, batch):
         # Preprocess images
