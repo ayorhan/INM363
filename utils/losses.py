@@ -204,7 +204,7 @@ class StyleTransferLoss(nn.Module):
         """Total variation loss for smoothness"""
         h_tv = torch.mean(torch.abs(x[:, :, 1:, :] - x[:, :, :-1, :]))
         w_tv = torch.mean(torch.abs(x[:, :, :, 1:] - x[:, :, :, :-1]))
-        return h_tv + w_tv
+        return torch.tensor(h_tv + w_tv, device=x.device, dtype=x.dtype)
     
     def compute_losses(self, generated, batch):
         # Preprocess images
