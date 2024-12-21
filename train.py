@@ -421,9 +421,10 @@ def log_epoch_summary(logger, epoch, losses, num_batches):
         f'epoch/{k}_loss': v for k, v in avg_losses.items()
     })
     
-    print(f"\nEpoch {epoch} Summary:")
+    print(f"\nEpoch {epoch+1} Summary:")
     for k, v in avg_losses.items():
         print(f"{k}_loss: {v:.4f}")
+    print()
 
 def calculate_generator_loss(model, real_A, real_B, fake_A, fake_B, cycle_A, cycle_B, identity_A, identity_B, config):
     # Adversarial loss
