@@ -400,9 +400,16 @@ def train_cyclegan(model, train_loader, val_loader, config, device, logger):
     use_wandb = initialize_wandb(config)
     
     # Create directories for saving
-    os.makedirs(config.logging.save_dir, exist_ok=True)  # For checkpoints
-    os.makedirs(config.logging.output_dir, exist_ok=True)  # For outputs
-    os.makedirs('logs', exist_ok=True)  # For logging
+    os.makedirs(config.logging.save_dir, exist_ok=True)
+    os.makedirs(config.logging.output_dir, exist_ok=True)
+    os.makedirs('logs', exist_ok=True)
+    
+    # Initialize optimizer
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=config.training.learning_rate,
+        betas=(config.training.beta1, config.training.beta2)
+    )
     
     # Training loop
     best_val_loss = float('inf')
@@ -416,7 +423,60 @@ def train_cyclegan(model, train_loader, val_loader, config, device, logger):
                 batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
                         for k, v in batch.items()}
                 
-                # Rest of your training code...
+                real_A = batch['content']
+                real_B = batch['style']
+                
+                # Generator forward pass
+                fake_B = model.G_AB(real_A)
+                fake_A = model.G_BA(real_B)
+                cycle_A = model.G_BA(fake_B)
+                cycle_B = model.G_AB(fake_A)
+                identity_A = model.G_BA(real_A)
+                identity_B = model.G_AB(real_B)
+                
+                # Train generators
+                optimizer.zero_grad()
+                g_loss, g_losses = calculate_generator_loss(
+                    model, real_A, real_B, fake_A, fake_B, 
+                    cycle_A, cycle_B, identity_A, identity_B, config
+                )
+                g_loss.backward()
+                optimizer.step()
+                
+                # Train discriminators
+                optimizer.zero_grad()
+                d_loss, d_losses = train_discriminator(model, real_A, real_B, fake_A, fake_B)
+                d_loss.backward()
+                optimizer.step()
+                
+                # Update running losses
+                for k, v in g_losses.items():
+                    running_losses[k] += v.item() if torch.is_tensor(v) else v
+                for k, v in d_losses.items():
+                    running_losses[k] += v
+                
+                # Log progress
+                if batch_idx % config.logging.log_interval == 0:
+                    logger.info(f"Epoch [{epoch+1}][{batch_idx}/{len(train_loader)}] "
+                              f"G_AB: {g_losses['G_AB']:.4f}, G_BA: {g_losses['G_BA']:.4f}, "
+                              f"D_A: {d_losses['D_A']:.4f}, D_B: {d_losses['D_B']:.4f}, "
+                              f"Cycle: {(g_losses['cycle_A'] + g_losses['cycle_B']):.4f}, "
+                              f"Identity: {(g_losses['identity_A'] + g_losses['identity_B']):.4f}")
+                    
+                    if use_wandb:
+                        log_training_progress(wandb, epoch, batch, 
+                                           {**g_losses, **d_losses},
+                                           fake_A, fake_B, cycle_A, cycle_B,
+                                           identity_A, identity_B)
+                
+                # Save checkpoint if needed
+                if batch_idx % config.training.save_interval == 0:
+                    save_checkpoint(model, optimizer, epoch, batch_idx, 
+                                 g_loss.item() + d_loss.item(), config)
+        
+        # Log epoch summary
+        if use_wandb:
+            log_epoch_summary(wandb, epoch, running_losses, len(train_loader))
 
 def log_training_progress(logger, epoch, batch, losses, fake_A, fake_B, cycle_A, cycle_B, identity_A, identity_B):
     """Log training progress including images and metrics"""
@@ -473,27 +533,18 @@ def calculate_generator_loss(model, real_A, real_B, fake_A, fake_B, cycle_A, cyc
     }
 
 def train_discriminator(model, real_A, real_B, fake_A, fake_B):
-    # Get discriminator outputs
-    D_A_real = model.D_A(real_A)
-    D_A_fake = model.D_A(fake_A.detach())
-    D_B_real = model.D_B(real_B)
-    D_B_fake = model.D_B(fake_B.detach())
+    # Real loss with labels
+    real_label = torch.ones(real_A.size(0), 1, device=real_A.device)
+    fake_label = torch.zeros(real_A.size(0), 1, device=real_A.device)
     
-    # Create labels matching the discriminator output shape
-    real_label = torch.ones_like(D_A_real, device=real_A.device)
-    fake_label = torch.zeros_like(D_A_fake, device=real_A.device)
-    
-    # Calculate losses
-    loss_D_A_real = torch.nn.MSELoss()(D_A_real, real_label)
-    loss_D_A_fake = torch.nn.MSELoss()(D_A_fake, fake_label)
+    # D_A loss
+    loss_D_A_real = torch.nn.MSELoss()(model.D_A(real_A), real_label)
+    loss_D_A_fake = torch.nn.MSELoss()(model.D_A(fake_A.detach()), fake_label)
     loss_D_A = (loss_D_A_real + loss_D_A_fake) * 0.5
     
-    # Use new labels matching D_B output shape
-    real_label_B = torch.ones_like(D_B_real, device=real_B.device)
-    fake_label_B = torch.zeros_like(D_B_fake, device=real_B.device)
-    
-    loss_D_B_real = torch.nn.MSELoss()(D_B_real, real_label_B)
-    loss_D_B_fake = torch.nn.MSELoss()(D_B_fake, fake_label_B)
+    # D_B loss
+    loss_D_B_real = torch.nn.MSELoss()(model.D_B(real_B), real_label)
+    loss_D_B_fake = torch.nn.MSELoss()(model.D_B(fake_B.detach()), fake_label)
     loss_D_B = (loss_D_B_real + loss_D_B_fake) * 0.5
     
     loss_D = loss_D_A + loss_D_B
