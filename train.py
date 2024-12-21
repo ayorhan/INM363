@@ -36,6 +36,7 @@ from evaluation_scripts.evaluate_model import evaluate_model
 from download_datasets import download_coco_images, download_style_images_kaggle
 from utils.metrics import StyleTransferMetrics
 from utils.logging_utils import setup_training_logger, log_training_step, log_validation_results, log_model_parameters
+from utils.visualization import save_checkpoint_samples
 
 def setup_logging(config: StyleTransferConfig) -> None:
     """Setup logging configuration"""
@@ -616,62 +617,6 @@ def monitor_losses(g_losses, d_losses, logger):
             logger.warning(f"High loss value detected - {name}: {value:.4f}")
         elif value != value:  # Check for NaN
             logger.error(f"NaN loss detected - {name}")
-
-def save_checkpoint_samples(model, val_loader, epoch, output_dir, model_type='johnson'):
-    """Generate and save sample outputs for the current checkpoint"""
-    device = next(model.parameters()).device
-    model.eval()
-    
-    # Create checkpoint-specific directory
-    samples_dir = Path(output_dir) / 'training_progress' / f'epoch_{epoch}'
-    samples_dir.mkdir(parents=True, exist_ok=True)
-    
-    with torch.no_grad():
-        # Get a batch from validation loader
-        batch = next(iter(val_loader))
-        content = batch['content'].to(device)
-        style = batch['style'].to(device)
-        
-        if model_type.lower() == 'cyclegan':
-            # Generate CycleGAN translations
-            fake_B = model(content, direction='AB')  # Content to style
-            fake_A = model(fake_B, direction='BA')   # Back to content (cycle)
-            identity_B = model(style, direction='AB') # Style identity
-            
-            # Create grid for each sample
-            for i in range(min(4, content.size(0))):
-                comparison = torch.cat([
-                    content[i:i+1],     # Original content
-                    style[i:i+1],       # Target style
-                    fake_B[i:i+1],      # Stylized
-                    fake_A[i:i+1],      # Reconstructed
-                    identity_B[i:i+1]   # Style identity
-                ], dim=2)
-                
-                save_image(
-                    comparison,
-                    samples_dir / f'sample_{i}_cyclegan.png',
-                    normalize=True
-                )
-        else:
-            # Generate Johnson model outputs
-            output = model(content)
-            
-            # Create grid for each sample
-            for i in range(min(4, content.size(0))):
-                comparison = torch.cat([
-                    content[i:i+1],    # Original content
-                    style[i:i+1],      # Target style
-                    output[i:i+1]      # Stylized output
-                ], dim=2)
-                
-                save_image(
-                    comparison,
-                    samples_dir / f'sample_{i}_johnson.png',
-                    normalize=True
-                )
-    
-    model.train()
 
 def create_progress_visualization(output_dir, model_type):
     """Create an HTML file showing training progression"""
