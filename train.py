@@ -24,6 +24,8 @@ import datetime
 import argparse
 import torch.nn.functional as F
 from collections import defaultdict
+from torchvision.utils import make_grid, save_image
+import torch.nn.utils as utils
 
 from utils.config import load_config, StyleTransferConfig
 from utils.dataloader import StyleTransferDataset
@@ -272,58 +274,68 @@ def train(config_path: str):
         output_path=output_dir
     )
 
-def save_checkpoint(model: nn.Module,
-                   optimizer: torch.optim.Optimizer,
-                   epoch: int,
-                   batch_idx: int,
-                   loss: float,
-                   config: StyleTransferConfig) -> None:
-    """Save model checkpoint"""
+def save_checkpoint(model, optimizer, epoch, batch_idx, loss, config, val_loader, is_best=False):
+    """Save model checkpoint and generate sample outputs"""
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     model_name = config.model.model_type
     
-    save_path = (Path(config.logging.save_dir) / 
-                f"{model_name}_checkpoint_epoch{epoch}_iter{batch_idx}_{timestamp}.pth")
+    # Save checkpoint
+    checkpoint_name = (f"{model_name}_checkpoint_epoch{epoch}_iter{batch_idx}_{timestamp}.pth")
+    save_path = Path(config.logging.save_dir) / checkpoint_name
     save_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({
+    
+    checkpoint = {
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'loss': loss,
-    }, save_path)
+    }
+    
+    torch.save(checkpoint, save_path)
+    
+    # Generate and save sample outputs with config
+    samples_output_dir = Path(config.logging.output_dir)
+    save_checkpoint_samples(
+        model, val_loader, epoch, samples_output_dir, 
+        config.model.model_type, config
+    )
+    
+    # Create/update progress visualization
+    create_progress_visualization(samples_output_dir, model_name)
+    
+    # If this is the best model so far, save an additional copy
+    if is_best:
+        best_path = save_path.parent / f"{model_name}_best.pth"
+        torch.save(checkpoint, best_path)
 
 def train_cyclegan(model, train_loader, val_loader, config, device, logger):
-    # Initialize wandb if configured
     use_wandb = initialize_wandb(config)
     
-    # Create directories for saving
     os.makedirs(config.logging.save_dir, exist_ok=True)
     os.makedirs(config.logging.output_dir, exist_ok=True)
     os.makedirs('logs', exist_ok=True)
     
-    # Initialize optimizer
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=config.training.learning_rate,
         betas=(config.training.beta1, config.training.beta2)
     )
     
-    # Training loop
     best_val_loss = float('inf')
+    
     for epoch in range(config.training.num_epochs):
         model.train()
         running_losses = defaultdict(float)
         
         with tqdm(train_loader, desc=f"Epoch {epoch+1}/{config.training.num_epochs}") as pbar:
             for batch_idx, batch in enumerate(pbar):
-                # Move data to device
-                batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
-                        for k, v in batch.items()}
-                
+                batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
                 real_A = batch['content']
                 real_B = batch['style']
                 
-                # Generator forward pass
+                # ---------------------------
+                # Generator Forward & Backward
+                # ---------------------------
                 fake_B = model.G_AB(real_A)
                 fake_A = model.G_BA(real_B)
                 cycle_A = model.G_BA(fake_B)
@@ -331,7 +343,6 @@ def train_cyclegan(model, train_loader, val_loader, config, device, logger):
                 identity_A = model.G_BA(real_A)
                 identity_B = model.G_AB(real_B)
                 
-                # Train generators
                 optimizer.zero_grad()
                 g_loss, g_losses = calculate_generator_loss(
                     model, real_A, real_B, fake_A, fake_B, 
@@ -339,63 +350,98 @@ def train_cyclegan(model, train_loader, val_loader, config, device, logger):
                 )
                 g_loss.backward()
                 
-                # Log generator gradients
-                for name, param in model.named_parameters():
-                    if param.grad is not None:
-                        logger.debug(f"Gradient stats for {name}: "
-                                   f"Mean: {param.grad.mean().item():.4f}, "
-                                   f"Std: {param.grad.std().item():.4f}")
+                # Gradient clipping for generator
+                utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 
                 optimizer.step()
                 
-                # Train discriminators
+                # ---------------------------
+                # Discriminator Forward & Backward
+                # ---------------------------
                 optimizer.zero_grad()
                 d_loss, d_losses = train_discriminator(model, real_A, real_B, fake_A, fake_B)
                 d_loss.backward()
                 
-                # Log discriminator gradients
-                for name, param in model.named_parameters():
-                    if param.grad is not None and 'D_' in name:
-                        logger.debug(f"Gradient stats for {name}: "
-                                   f"Mean: {param.grad.mean().item():.4f}, "
-                                   f"Std: {param.grad.std().item():.4f}")
+                # Gradient clipping for discriminator
+                utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 
                 optimizer.step()
                 
-                # Update running losses
+                # Update loss tracking
                 for k, v in g_losses.items():
                     running_losses[k] += v.item() if torch.is_tensor(v) else v
                 for k, v in d_losses.items():
                     running_losses[k] += v
                 
-                # Log detailed progress
+                # Optional logging
                 if batch_idx % config.logging.log_interval == 0:
-                    logger.info(f"Epoch [{epoch+1}][{batch_idx}/{len(train_loader)}] "
-                              f"G_AB: {g_losses['G_AB']:.4f}, G_BA: {g_losses['G_BA']:.4f}, "
-                              f"D_A: {d_losses['D_A']:.4f}, D_B: {d_losses['D_B']:.4f}, "
-                              f"Cycle: {(g_losses['cycle_A'] + g_losses['cycle_B']):.4f}, "
-                              f"Identity: {(g_losses['identity_A'] + g_losses['identity_B']):.4f}")
-                    
-                    # Log tensor statistics
-                    logger.debug(f"Real A tensor range: [{real_A.min():.2f}, {real_A.max():.2f}]")
-                    logger.debug(f"Real B tensor range: [{real_B.min():.2f}, {real_B.max():.2f}]")
-                    logger.debug(f"Fake A tensor range: [{fake_A.min():.2f}, {fake_A.max():.2f}]")
-                    logger.debug(f"Fake B tensor range: [{fake_B.min():.2f}, {fake_B.max():.2f}]")
-                    
-                    if use_wandb:
-                        log_training_progress(wandb, epoch, batch, 
-                                           {**g_losses, **d_losses},
-                                           fake_A, fake_B, cycle_A, cycle_B,
-                                           identity_A, identity_B)
+                    logger.info(
+                        f"Epoch [{epoch+1}][{batch_idx}/{len(train_loader)}] "
+                        f"G_AB: {g_losses['G_AB']:.4f}, G_BA: {g_losses['G_BA']:.4f}, "
+                        f"D_A: {d_losses['D_A']:.4f}, D_B: {d_losses['D_B']:.4f}, "
+                        f"Cycle: {(g_losses['cycle_A'] + g_losses['cycle_B']):.4f}, "
+                        f"Identity: {(g_losses['identity_A'] + g_losses['identity_B']):.4f}"
+                    )
                 
-                # Save checkpoint if needed
-                if batch_idx % config.training.save_interval == 0:
-                    save_checkpoint(model, optimizer, epoch, batch_idx, 
-                                 g_loss.item() + d_loss.item(), config)
-        
-        # Log epoch summary
+                # Save samples periodically during training
+                if batch_idx % config.logging.sample_interval == 0:
+                    samples_output_dir = Path(config.logging.output_dir)
+                    save_checkpoint_samples(
+                        model, val_loader, epoch, 
+                        samples_output_dir, 'cyclegan'
+                    )
+                
+            # End of epoch => (2) Validation step
+            if (epoch + 1) % config.training.validation_interval == 0:
+                val_loss = run_cyclegan_validation(model, val_loader, config, device, logger)
+                
+                # Track best val loss
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    save_checkpoint(model, optimizer, epoch, 0, val_loss, config, val_loader, is_best=True)
+                
+        # We can also log epoch summary here
         if use_wandb:
             log_epoch_summary(wandb, epoch, running_losses, len(train_loader))
+        
+        # Save samples at end of epoch
+        save_checkpoint_samples(
+            model, val_loader, epoch, 
+            Path(config.logging.output_dir), 'cyclegan'
+        )
+        create_progress_visualization(
+            Path(config.logging.output_dir), 'cyclegan'
+        )
+
+def run_cyclegan_validation(model, val_loader, config, device, logger):
+    model.eval()
+    total_loss = 0
+    
+    with torch.no_grad():
+        for val_batch in val_loader:
+            val_batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in val_batch.items()}
+            real_A = val_batch['content']
+            real_B = val_batch['style']
+            
+            # Forward passes
+            fake_B = model.G_AB(real_A)
+            fake_A = model.G_BA(real_B)
+            cycle_A = model.G_BA(fake_B)
+            cycle_B = model.G_AB(fake_A)
+            identity_A = model.G_BA(real_A)
+            identity_B = model.G_AB(real_B)
+            
+            # Compute same generator losses used in training
+            g_loss, g_losses = calculate_generator_loss(
+                model, real_A, real_B, fake_A, fake_B, 
+                cycle_A, cycle_B, identity_A, identity_B, config
+            )
+            total_loss += g_loss.item()
+    
+    model.train()
+    avg_val_loss = total_loss / len(val_loader)
+    logger.info(f"Validation loss: {avg_val_loss:.4f}")
+    return avg_val_loss
 
 def log_training_progress(logger, epoch, batch, losses, fake_A, fake_B, cycle_A, cycle_B, identity_A, identity_B):
     """Log training progress including images and metrics"""
@@ -542,6 +588,158 @@ def setup_training_logger():
     logger.addHandler(console_handler)
     
     return logger
+
+def save_sample_images(model, real_A, real_B, fake_A, fake_B, cycle_A, cycle_B, 
+                      identity_A, identity_B, epoch, batch_idx, output_dir):
+    """Save a grid of sample images"""
+    # Create a grid of images
+    images = torch.cat([
+        real_A[:4], fake_B[:4], cycle_A[:4],
+        real_B[:4], fake_A[:4], cycle_B[:4],
+        real_A[:4], identity_A[:4],
+        real_B[:4], identity_B[:4]
+    ], dim=0)
+    
+    # Make grid
+    grid = make_grid(images, nrow=4, normalize=True)
+    
+    # Save image
+    save_path = Path(output_dir) / f'samples_epoch_{epoch}_batch_{batch_idx}.png'
+    save_image(grid, save_path)
+
+def monitor_losses(g_losses, d_losses, logger):
+    """Monitor losses for instability"""
+    # Check for extreme values
+    for name, loss in {**g_losses, **d_losses}.items():
+        value = loss.item() if torch.is_tensor(loss) else loss
+        if abs(value) > 10.0:  # Threshold for extreme values
+            logger.warning(f"High loss value detected - {name}: {value:.4f}")
+        elif value != value:  # Check for NaN
+            logger.error(f"NaN loss detected - {name}")
+
+def save_checkpoint_samples(model, val_loader, epoch, output_dir, model_type='johnson'):
+    """Generate and save sample outputs for the current checkpoint"""
+    device = next(model.parameters()).device
+    model.eval()
+    
+    # Create checkpoint-specific directory
+    samples_dir = Path(output_dir) / 'training_progress' / f'epoch_{epoch}'
+    samples_dir.mkdir(parents=True, exist_ok=True)
+    
+    with torch.no_grad():
+        # Get a batch from validation loader
+        batch = next(iter(val_loader))
+        content = batch['content'].to(device)
+        style = batch['style'].to(device)
+        
+        if model_type.lower() == 'cyclegan':
+            # Generate CycleGAN translations
+            fake_B = model(content, direction='AB')  # Content to style
+            fake_A = model(fake_B, direction='BA')   # Back to content (cycle)
+            identity_B = model(style, direction='AB') # Style identity
+            
+            # Create grid for each sample
+            for i in range(min(4, content.size(0))):
+                comparison = torch.cat([
+                    content[i:i+1],     # Original content
+                    style[i:i+1],       # Target style
+                    fake_B[i:i+1],      # Stylized
+                    fake_A[i:i+1],      # Reconstructed
+                    identity_B[i:i+1]   # Style identity
+                ], dim=2)
+                
+                save_image(
+                    comparison,
+                    samples_dir / f'sample_{i}_cyclegan.png',
+                    normalize=True
+                )
+        else:
+            # Generate Johnson model outputs
+            output = model(content)
+            
+            # Create grid for each sample
+            for i in range(min(4, content.size(0))):
+                comparison = torch.cat([
+                    content[i:i+1],    # Original content
+                    style[i:i+1],      # Target style
+                    output[i:i+1]      # Stylized output
+                ], dim=2)
+                
+                save_image(
+                    comparison,
+                    samples_dir / f'sample_{i}_johnson.png',
+                    normalize=True
+                )
+    
+    model.train()
+
+def create_progress_visualization(output_dir, model_type):
+    """Create an HTML file showing training progression"""
+    progress_dir = Path(output_dir) / 'training_progress'
+    epochs = sorted([d for d in progress_dir.iterdir() if d.is_dir()], 
+                   key=lambda x: int(x.name.split('_')[1]))
+    
+    html_content = [
+        '<!DOCTYPE html>',
+        '<html>',
+        '<head>',
+        '<style>',
+        '.sample { margin-bottom: 40px; }',
+        '.epoch { margin-bottom: 20px; padding: 20px; border: 1px solid #ccc; }',
+        '.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }',
+        'img { max-width: 100%; height: auto; }',
+        '</style>',
+        '</head>',
+        '<body>',
+        f'<h1>{model_type} Training Progress</h1>'
+    ]
+    
+    for epoch_dir in epochs:
+        epoch_num = epoch_dir.name.split('_')[1]
+        html_content.append(f'<div class="epoch"><h2>Epoch {epoch_num}</h2><div class="grid">')
+        
+        # Add all sample comparisons for this epoch
+        samples = sorted(epoch_dir.glob(f'sample_*_{model_type.lower()}.png'))
+        for sample in samples:
+            html_content.append(
+                f'<div class="sample">'
+                f'<img src="{sample.relative_to(progress_dir)}" />'
+                f'<p>Sample {sample.stem.split("_")[1]}</p>'
+                f'</div>'
+            )
+        html_content.append('</div></div>')
+    
+    html_content.extend(['</body>', '</html>'])
+    
+    # Save HTML file
+    with open(progress_dir / f'{model_type.lower()}_progress.html', 'w') as f:
+        f.write('\n'.join(html_content))
+
+def train_johnson(model, train_loader, val_loader, config, device, logger):
+    # Existing initialization code
+    
+    for epoch in range(config.training.num_epochs):
+        model.train()
+        
+        for batch_idx, batch in enumerate(train_loader):
+            # Existing training code
+            
+            # Save samples periodically
+            if batch_idx % config.logging.sample_interval == 0:
+                samples_output_dir = Path(config.logging.output_dir)
+                save_checkpoint_samples(
+                    model, val_loader, epoch, 
+                    samples_output_dir, 'johnson'
+                )
+        
+        # Save samples at end of epoch
+        save_checkpoint_samples(
+            model, val_loader, epoch, 
+            Path(config.logging.output_dir), 'johnson'
+        )
+        create_progress_visualization(
+            Path(config.logging.output_dir), 'johnson'
+        )
 
 if __name__ == "__main__":
     import argparse

@@ -50,3 +50,8 @@ logging:
   output_dir: "outputs/cyclegan"
   save_best: true
   metric_interval: 100
+  visualization:
+    sample_interval: 500  # Save samples every N batches
+    num_samples: 4        # Number of samples to save
+    save_cycle: true      # Save cycle consistency results
+    save_identity: true   # Save identity mapping results

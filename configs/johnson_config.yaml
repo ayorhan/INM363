@@ -46,4 +46,10 @@ logging:
   run_name: "johnson-baseline"
   log_interval: 100
   save_dir: "checkpoints/johnson"
-  output_dir: "outputs/johnson" 
+  output_dir: "outputs/johnson"
+  visualization:
+    sample_interval: 500  # Save samples every N batches
+    num_samples: 4        # Number of samples to save
+    save_style_targets: true  # Save style target images
+  save_best: true
+  metric_interval: 100
