@@ -239,6 +239,11 @@ def train(config_path: str):
     # Before the training loop:
     metrics = StyleTransferMetrics(device)
     
+    # Create all required directories
+    os.makedirs(config.logging.save_dir, exist_ok=True)  # For checkpoints
+    os.makedirs(config.logging.output_dir, exist_ok=True)  # For outputs
+    os.makedirs('logs', exist_ok=True)  # For logging
+    
     # Training loop
     best_val_loss = float('inf')
     for epoch in range(config.training.num_epochs):
