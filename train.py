@@ -635,10 +635,13 @@ def monitor_losses(g_losses, d_losses, logger):
     # Check for extreme values
     for name, loss in {**g_losses, **d_losses}.items():
         value = loss.item() if torch.is_tensor(loss) else loss
-        if abs(value) > 10.0:  # Threshold for extreme values
+        if abs(value) > 5.0:  # Lower threshold for style transfer
             logger.warning(f"High loss value detected - {name}: {value:.4f}")
         elif value != value:  # Check for NaN
             logger.error(f"NaN loss detected - {name}")
+            raise ValueError(f"NaN loss detected in {name}")
+        elif abs(value) < 1e-8:  # Check for vanishing gradients
+            logger.warning(f"Near-zero loss detected - {name}: {value:.4e}")
 
 def create_progress_visualization(output_dir: Path, model_type: str):
     """Create a visualization of training progress"""
@@ -705,6 +708,13 @@ def train_johnson(model, train_loader, val_loader, config, device, logger):
         betas=(config.training.beta1, config.training.beta2)
     )
     
+    # Initialize scheduler
+    scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer,
+        step_size=config.training.step_size,
+        gamma=config.training.gamma
+    )
+    
     # Initialize loss function
     loss_fn = StyleTransferLoss(config)
     
@@ -723,12 +733,19 @@ def train_johnson(model, train_loader, val_loader, config, device, logger):
                 # Training step
                 losses, outputs = train_step(model, batch, loss_fn, optimizer, config)
                 
+                # Gradient clipping
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
+                
                 # Update running losses
                 for k, v in losses.items():
                     running_losses[k] += v.item() if torch.is_tensor(v) else v
                 
                 # Update progress bar
                 pbar.set_postfix({k: f"{v:.4f}" for k, v in losses.items()})
+                
+                # Log training metrics
+                if batch_idx % config.logging.log_interval == 0:
+                    log_training_metrics(running_losses, batch_idx, epoch, len(train_loader), logger)
                 
                 # Save samples periodically
                 if batch_idx % config.logging.visualization.sample_interval == 0:
@@ -744,18 +761,44 @@ def train_johnson(model, train_loader, val_loader, config, device, logger):
                 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
-                    save_checkpoint(model, optimizer, epoch, 0, val_loss, 
-                                 config, val_loader, is_best=True)
+                    save_checkpoint(model, optimizer, epoch, scheduler.get_last_lr()[0], 
+                                 val_loss, config, val_loader, is_best=True)
+        
+        # Step the scheduler
+        scheduler.step()
         
         # Log epoch summary
         if use_wandb:
             log_epoch_summary(wandb, epoch, running_losses, len(train_loader))
+            wandb.log({"learning_rate": scheduler.get_last_lr()[0]})
         
         # Save samples at end of epoch
         save_checkpoint_samples(
             model, val_loader, epoch, 
             Path(config.logging.output_dir), 'johnson', config
         )
+
+def log_training_metrics(running_losses, batch_idx, epoch, num_batches, logger):
+    """Log detailed training metrics"""
+    metrics = {
+        name: value / (batch_idx + 1) 
+        for name, value in running_losses.items()
+    }
+    
+    logger.info(
+        f"Epoch [{epoch+1}][{batch_idx}/{num_batches}] "
+        f"Content: {metrics.get('content', 0):.4f} "
+        f"Style: {metrics.get('style', 0):.4f} "
+        f"TV: {metrics.get('tv', 0):.4f}"
+    )
+    
+    if wandb.run is not None:
+        wandb.log({
+            "train/content_loss": metrics.get('content', 0),
+            "train/style_loss": metrics.get('style', 0),
+            "train/tv_loss": metrics.get('tv', 0),
+            "train/total_loss": sum(metrics.values())
+        })
 
 if __name__ == "__main__":
     import argparse

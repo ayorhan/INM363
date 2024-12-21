@@ -8,8 +8,8 @@ model:
   use_dropout: true
   norm_type: "instance"
   style_model: "vgg19"
-  content_layers: ["relu3_3"]
-  style_layers: ["relu1_2", "relu2_2", "relu3_3", "relu4_3"]
+  content_layers: ["relu4_2"]  # Changed from relu3_3
+  style_layers: ["relu1_1", "relu2_1", "relu3_1", "relu4_1"]  # Reduced and changed layers
 
 training:
   batch_size: 32
@@ -21,8 +21,8 @@ training:
   step_size: 20
   gamma: 0.5
   content_weight: 1.0
-  style_weight: 100.0
-  tv_weight: 1e-4
+  style_weight: 5.0
+  tv_weight: 1e-6
   save_interval: 500
   validation_interval: 5000
   min_lr: 0.00001
