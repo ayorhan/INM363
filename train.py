@@ -565,18 +565,27 @@ def calculate_generator_loss(model, real_A, real_B, fake_A, fake_B, cycle_A, cyc
     }
 
 def train_discriminator(model, real_A, real_B, fake_A, fake_B):
-    # Real loss with labels
-    real_label = torch.ones(real_A.size(0), 1, device=real_A.device)
-    fake_label = torch.zeros(real_A.size(0), 1, device=real_A.device)
+    # Get discriminator outputs
+    D_A_real = model.D_A(real_A)
+    D_A_fake = model.D_A(fake_A.detach())
+    D_B_real = model.D_B(real_B)
+    D_B_fake = model.D_B(fake_B.detach())
     
-    # D_A loss
-    loss_D_A_real = torch.nn.MSELoss()(model.D_A(real_A), real_label)
-    loss_D_A_fake = torch.nn.MSELoss()(model.D_A(fake_A.detach()), fake_label)
+    # Create labels matching the discriminator output shape
+    real_label = torch.ones_like(D_A_real, device=real_A.device)
+    fake_label = torch.zeros_like(D_A_fake, device=real_A.device)
+    
+    # Calculate losses
+    loss_D_A_real = torch.nn.MSELoss()(D_A_real, real_label)
+    loss_D_A_fake = torch.nn.MSELoss()(D_A_fake, fake_label)
     loss_D_A = (loss_D_A_real + loss_D_A_fake) * 0.5
     
-    # D_B loss
-    loss_D_B_real = torch.nn.MSELoss()(model.D_B(real_B), real_label)
-    loss_D_B_fake = torch.nn.MSELoss()(model.D_B(fake_B.detach()), fake_label)
+    # Use new labels matching D_B output shape
+    real_label_B = torch.ones_like(D_B_real, device=real_B.device)
+    fake_label_B = torch.zeros_like(D_B_fake, device=real_B.device)
+    
+    loss_D_B_real = torch.nn.MSELoss()(D_B_real, real_label_B)
+    loss_D_B_fake = torch.nn.MSELoss()(D_B_fake, fake_label_B)
     loss_D_B = (loss_D_B_real + loss_D_B_fake) * 0.5
     
     loss_D = loss_D_A + loss_D_B
