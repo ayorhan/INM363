@@ -674,29 +674,69 @@ def create_progress_visualization(output_dir: Path, model_type: str):
         f.write('\n'.join(html_content))
 
 def train_johnson(model, train_loader, val_loader, config, device, logger):
-    # Existing initialization code
+    use_wandb = initialize_wandb(config)
+    
+    # Initialize directories
+    os.makedirs(config.logging.save_dir, exist_ok=True)
+    os.makedirs(config.logging.output_dir, exist_ok=True)
+    
+    # Initialize optimizer
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=config.training.learning_rate,
+        betas=(config.training.beta1, config.training.beta2)
+    )
+    
+    # Initialize loss function
+    loss_fn = StyleTransferLoss(config)
+    
+    best_val_loss = float('inf')
     
     for epoch in range(config.training.num_epochs):
         model.train()
+        running_losses = defaultdict(float)
         
-        for batch_idx, batch in enumerate(train_loader):
-            # Existing training code
+        with tqdm(train_loader, desc=f"Epoch {epoch+1}/{config.training.num_epochs}") as pbar:
+            for batch_idx, batch in enumerate(pbar):
+                # Move batch to device
+                batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+                        for k, v in batch.items()}
+                
+                # Training step
+                losses, outputs = train_step(model, batch, loss_fn, optimizer, config)
+                
+                # Update running losses
+                for k, v in losses.items():
+                    running_losses[k] += v.item() if torch.is_tensor(v) else v
+                
+                # Update progress bar
+                pbar.set_postfix({k: f"{v:.4f}" for k, v in losses.items()})
+                
+                # Save samples periodically
+                if batch_idx % config.logging.visualization.sample_interval == 0:
+                    save_checkpoint_samples(
+                        model, val_loader, epoch, 
+                        Path(config.logging.output_dir), 'johnson', config
+                    )
             
-            # Save samples periodically
-            if batch_idx % config.logging.visualization.sample_interval == 0:
-                samples_output_dir = Path(config.logging.output_dir)
-                save_checkpoint_samples(
-                    model, val_loader, epoch, 
-                    samples_output_dir, 'johnson', config
-                )
+            # End of epoch validation
+            if (epoch + 1) % config.training.validation_interval == 0:
+                val_loss = validate(model, val_loader, loss_fn, config, device)
+                logger.info(f"Validation loss: {val_loss:.4f}")
+                
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    save_checkpoint(model, optimizer, epoch, 0, val_loss, 
+                                 config, val_loader, is_best=True)
+        
+        # Log epoch summary
+        if use_wandb:
+            log_epoch_summary(wandb, epoch, running_losses, len(train_loader))
         
         # Save samples at end of epoch
         save_checkpoint_samples(
             model, val_loader, epoch, 
             Path(config.logging.output_dir), 'johnson', config
-        )
-        create_progress_visualization(
-            Path(config.logging.output_dir), 'johnson'
         )
 
 if __name__ == "__main__":
