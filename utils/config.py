@@ -45,18 +45,31 @@ class DataConfig:
     use_augmentation: bool = True
     num_workers: int = 4
 
-@dataclass
+class VisualizationConfig:
+    def __init__(self, **kwargs):
+        self.sample_interval = kwargs.get('sample_interval', 500)
+        self.num_samples = kwargs.get('num_samples', 4)
+        self.save_style_targets = kwargs.get('save_style_targets', True)
+        self.save_cycle = kwargs.get('save_cycle', True)
+        self.save_identity = kwargs.get('save_identity', True)
+
 class LoggingConfig:
-    """Logging configuration parameters"""
-    use_wandb: bool = False
-    project_name: str = "style-transfer"
-    run_name: str = "default"
-    log_interval: int = 100
-    save_dir: str = "checkpoints"
-    output_dir: str = "outputs"
-    save_best: bool = False
-    metric_interval: int = 100
-    
+    def __init__(self, **kwargs):
+        self.use_wandb = kwargs.get('use_wandb', True)
+        self.project_name = kwargs.get('project_name', 'style-transfer')
+        self.run_name = kwargs.get('run_name', 'baseline')
+        self.log_interval = kwargs.get('log_interval', 100)
+        self.save_dir = kwargs.get('save_dir', 'checkpoints')
+        self.output_dir = kwargs.get('output_dir', 'outputs')
+        self.save_best = kwargs.get('save_best', True)
+        self.metric_interval = kwargs.get('metric_interval', 100)
+        
+        # Initialize visualization config if present
+        if 'visualization' in kwargs:
+            self.visualization = VisualizationConfig(**kwargs['visualization'])
+        else:
+            self.visualization = VisualizationConfig()
+
 class StyleTransferConfig:
     """Complete configuration for style transfer training"""
     def __init__(self, config_path: str):
