@@ -27,6 +27,7 @@ checkpoints/
 outputs/
 evaluation_results/
 wandb/
+logs.txt
 
 # Logs
 *.log

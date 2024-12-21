@@ -427,22 +427,21 @@ def log_epoch_summary(logger, epoch, losses, num_batches):
     print()
 
 def calculate_generator_loss(model, real_A, real_B, fake_A, fake_B, cycle_A, cycle_B, identity_A, identity_B, config):
-    # Adversarial loss
-    loss_G_AB = -torch.mean(model.D_B(fake_B))
-    loss_G_BA = -torch.mean(model.D_A(fake_A))
+    # Adversarial loss (LSGAN)
+    loss_G_AB = torch.mean((model.D_B(fake_B) - 1)**2)
+    loss_G_BA = torch.mean((model.D_A(fake_A) - 1)**2)
     
     # Cycle consistency loss
     loss_cycle_A = F.l1_loss(cycle_A, real_A) * config.training.lambda_A
     loss_cycle_B = F.l1_loss(cycle_B, real_B) * config.training.lambda_B
     
-    # Identity loss
+    # Identity loss (with reduced weight)
     loss_identity_A = F.l1_loss(identity_A, real_A) * config.training.lambda_identity
     loss_identity_B = F.l1_loss(identity_B, real_B) * config.training.lambda_identity
     
     # Total generator loss
     loss_G = loss_G_AB + loss_G_BA + loss_cycle_A + loss_cycle_B + loss_identity_A + loss_identity_B
     
-    # Return losses dictionary for logging
     return loss_G, {
         'G_AB': loss_G_AB,
         'G_BA': loss_G_BA,
