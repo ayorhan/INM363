@@ -407,7 +407,7 @@ def train_cyclegan(model, train_loader, val_loader, config, device, logger):
         # Save samples at end of epoch
         save_checkpoint_samples(
             model, val_loader, epoch, 
-            Path(config.logging.output_dir), 'cyclegan'
+            Path(config.logging.output_dir), 'cyclegan', config
         )
         create_progress_visualization(
             Path(config.logging.output_dir), 'cyclegan'
@@ -725,17 +725,17 @@ def train_johnson(model, train_loader, val_loader, config, device, logger):
             # Existing training code
             
             # Save samples periodically
-            if batch_idx % config.logging.sample_interval == 0:
+            if batch_idx % config.logging.visualization.sample_interval == 0:
                 samples_output_dir = Path(config.logging.output_dir)
                 save_checkpoint_samples(
                     model, val_loader, epoch, 
-                    samples_output_dir, 'johnson'
+                    samples_output_dir, 'johnson', config
                 )
         
         # Save samples at end of epoch
         save_checkpoint_samples(
             model, val_loader, epoch, 
-            Path(config.logging.output_dir), 'johnson'
+            Path(config.logging.output_dir), 'johnson', config
         )
         create_progress_visualization(
             Path(config.logging.output_dir), 'johnson'
