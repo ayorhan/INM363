@@ -231,6 +231,14 @@ def train(config_path: str):
     # Initialize loss functions
     loss_fn = get_loss_function(config)
     
+    # Choose training function based on model type
+    if config.model.model_type.lower() == 'cyclegan':
+        train_logger.info("Starting CycleGAN training...")
+        train_cyclegan(model, train_loader, val_loader, config, device, train_logger)
+    else:  # johnson
+        train_logger.info("Starting Johnson model training...")
+        train_johnson(model, train_loader, val_loader, config, device, train_logger)
+    
     # Initialize optimizer
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -259,10 +267,6 @@ def train(config_path: str):
     os.makedirs(config.logging.save_dir, exist_ok=True)
     os.makedirs(config.logging.output_dir, exist_ok=True)
     os.makedirs('logs', exist_ok=True)
-    
-    # Start training
-    train_logger.info("Starting CycleGAN training...")
-    train_cyclegan(model, train_loader, val_loader, config, device, train_logger)
     
     # After training completes, run evaluation
     train_logger.info("\nRunning post-training evaluation...")
