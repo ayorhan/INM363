@@ -165,14 +165,9 @@ class StyleTransferLoss(nn.Module):
         
         # Extract required layers
         self.layers = nn.ModuleDict()
-        current_block = nn.Sequential()
-        
-        for name, layer in self.vgg.named_children():
-            if int(name) <= max(int(self.layer_mapping[l]) for l in self.content_layers + self.style_layers):
-                current_block.add_module(name, layer)
-                if name in [self.layer_mapping[l] for l in self.content_layers + self.style_layers]:
-                    self.layers[name] = current_block
-                    current_block = nn.Sequential()
+        for layer_name in self.content_layers + self.style_layers:
+            layer_idx = int(self.layer_mapping[layer_name])
+            self.layers[layer_name] = nn.Sequential(*list(self.vgg.children())[:layer_idx+1])
         
         # Move model to device and freeze parameters
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -214,43 +209,24 @@ class StyleTransferLoss(nn.Module):
         content = self._preprocess(batch['content'].to(generated.device))
         style = self._preprocess(batch['style'].to(generated.device))
         
-        # Get VGG features
-        output_features = {}
-        content_features = {}
-        style_features = {}
-        
-        # Extract features for each layer
-        x = generated_prep
-        x_content = content
-        x_style = style
-        
-        for name, layer in self.layers.items():
-            x = layer(x)
-            x_content = layer(x_content)
-            x_style = layer(x_style)
-            
-            if name in [self.layer_mapping[l] for l in self.content_layers]:
-                output_features[name] = x
-                content_features[name] = x_content
-                
-            if name in [self.layer_mapping[l] for l in self.style_layers]:
-                output_features[name] = x
-                style_features[name] = x_style
-        
         # Content loss
         content_loss = 0
-        for name in [self.layer_mapping[l] for l in self.content_layers]:
-            content_loss += F.mse_loss(output_features[name], content_features[name])
+        for layer_name in self.content_layers:
+            gen_features = self.layers[layer_name](generated_prep)
+            content_features = self.layers[layer_name](content)
+            content_loss += F.mse_loss(gen_features, content_features)
         
         # Style loss
         style_loss = 0
-        for name in [self.layer_mapping[l] for l in self.style_layers]:
-            output_gram = self.gram_matrix(output_features[name])
-            style_gram = self.gram_matrix(style_features[name])
-            style_loss += F.mse_loss(output_gram, style_gram)
+        for layer_name in self.style_layers:
+            gen_features = self.layers[layer_name](generated_prep)
+            style_features = self.layers[layer_name](style)
+            gen_gram = self.gram_matrix(gen_features)
+            style_gram = self.gram_matrix(style_features)
+            style_loss += F.mse_loss(gen_gram, style_gram)
         
-        # Total variation loss - using the raw generated image
-        tv_loss = float(self.tv_weight) * self.total_variation_loss(generated)
+        # Total variation loss
+        tv_loss = self.tv_weight * self.total_variation_loss(generated)
         
         return {
             'content': self.content_weight * content_loss,
