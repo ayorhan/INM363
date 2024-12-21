@@ -203,9 +203,9 @@ def train_step(model, batch, loss_fn, optimizer, config):
         train_logger.debug(f"Output tensor range: [{outputs['generated'].min():.2f}, {outputs['generated'].max():.2f}]")
         
         # Loss components
-        train_logger.debug(f"Content loss: {losses['content_loss']:.4f}")
-        train_logger.debug(f"Style loss: {losses['style_loss']:.4f}")
-        train_logger.debug(f"Total variation loss: {losses['tv_loss']:.4f}")
+        train_logger.debug(f"Content loss: {losses['content']:.4f}")
+        train_logger.debug(f"Style loss: {losses['style']:.4f}")
+        train_logger.debug(f"Total variation loss: {losses.get('tv', 0.0):.4f}")
         
         # Gradient statistics
         for name, param in model.named_parameters():
