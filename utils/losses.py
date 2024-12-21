@@ -144,6 +144,18 @@ class StyleTransferLoss(nn.Module):
         self.content_layers = config.model.content_layers
         self.style_layers = config.model.style_layers
         
+        # Layer name mapping
+        self.layer_mapping = {
+            'relu1_1': '2',  'relu1_2': '4',
+            'relu2_1': '7',  'relu2_2': '9',
+            'relu3_1': '12', 'relu3_2': '14',
+            'relu3_3': '16', 'relu3_4': '18',
+            'relu4_1': '21', 'relu4_2': '23',
+            'relu4_3': '25', 'relu4_4': '27',
+            'relu5_1': '30', 'relu5_2': '32',
+            'relu5_3': '34', 'relu5_4': '36'
+        }
+        
         # VGG preprocessing
         self.register_buffer('vgg_mean', torch.tensor([0.485, 0.456, 0.406]).view(-1, 1, 1))
         self.register_buffer('vgg_std', torch.tensor([0.229, 0.224, 0.225]).view(-1, 1, 1))
@@ -165,18 +177,6 @@ class StyleTransferLoss(nn.Module):
         self.to(self.device)
         for param in self.parameters():
             param.requires_grad = False
-        
-        # Layer name mapping
-        self.layer_mapping = {
-            'relu1_1': '2',  'relu1_2': '4',
-            'relu2_1': '7',  'relu2_2': '9',
-            'relu3_1': '12', 'relu3_2': '14',
-            'relu3_3': '16', 'relu3_4': '18',
-            'relu4_1': '21', 'relu4_2': '23',
-            'relu4_3': '25', 'relu4_4': '27',
-            'relu5_1': '30', 'relu5_2': '32',
-            'relu5_3': '34', 'relu5_4': '36'
-        }
         
     def gram_matrix(self, x: torch.Tensor) -> torch.Tensor:
         """Compute Gram matrix for style loss"""
