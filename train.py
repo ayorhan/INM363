@@ -396,119 +396,27 @@ def save_checkpoint(model: nn.Module,
     }, save_path)
 
 def train_cyclegan(model, train_loader, val_loader, config, device, logger):
-    # Setup enhanced logging
-    train_logger = setup_training_logger()
-    train_logger.info("Starting CycleGAN training")
-    log_model_parameters(train_logger, model)
+    # Initialize wandb if configured
+    use_wandb = initialize_wandb(config)
     
-    # Add metrics initialization
-    metrics = StyleTransferMetrics(device)
+    # Create directories for saving
+    os.makedirs(config.logging.save_dir, exist_ok=True)  # For checkpoints
+    os.makedirs(config.logging.output_dir, exist_ok=True)  # For outputs
+    os.makedirs('logs', exist_ok=True)  # For logging
     
+    # Training loop
     best_val_loss = float('inf')
-    best_model_path = None
-    
-    # Initialize optimizers
-    optimizer_G = torch.optim.Adam(
-        list(model.G_AB.parameters()) + list(model.G_BA.parameters()),
-        lr=config.training.learning_rate,
-        betas=(config.training.beta1, config.training.beta2)
-    )
-    optimizer_D = torch.optim.Adam(
-        list(model.D_A.parameters()) + list(model.D_B.parameters()),
-        lr=config.training.learning_rate,
-        betas=(config.training.beta1, config.training.beta2)
-    )
-
     for epoch in range(config.training.num_epochs):
         model.train()
         running_losses = defaultdict(float)
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
         
-        for batch_idx, batch in enumerate(pbar):
-            real_A = batch['content'].to(device)
-            real_B = batch['style'].to(device)
-            
-            # Train Generators
-            optimizer_G.zero_grad()
-            
-            # Forward cycle
-            fake_B = model.G_AB(real_A)
-            cycle_A = model.G_BA(fake_B)
-            
-            # Backward cycle
-            fake_A = model.G_BA(real_B)
-            cycle_B = model.G_AB(fake_A)
-            
-            # Identity loss
-            identity_A = model.G_BA(real_A)
-            identity_B = model.G_AB(real_B)
-            
-            # Calculate and log all losses
-            loss_G, loss_dict = calculate_generator_loss(
-                model, real_A, real_B, fake_A, fake_B,
-                cycle_A, cycle_B, identity_A, identity_B,
-                config
-            )
-            
-            loss_G.backward()
-            optimizer_G.step()
-            
-            # Train Discriminators
-            optimizer_D.zero_grad()
-            loss_D, d_loss_dict = train_discriminator(
-                model, real_A, real_B, fake_A.detach(), fake_B.detach()
-            )
-            
-            loss_D.backward()
-            optimizer_D.step()
-            
-            # Update running losses - handle both tensor and float values
-            running_losses['total_loss'] += (loss_G.item() + loss_D.item())
-            for k, v in loss_dict.items():
-                running_losses[k] += v.item() if torch.is_tensor(v) else v
-            for k, v in d_loss_dict.items():
-                running_losses[k] += v if isinstance(v, float) else v.item()
-            
-            # Enhanced logging
-            if batch_idx % config.logging.log_interval == 0:
-                outputs = {'fake_B': fake_B, 'fake_A': fake_A}
-                log_training_step(train_logger, 'cyclegan', epoch, batch_idx, 
-                                 loss_dict, outputs, len(train_loader))
+        with tqdm(train_loader, desc=f"Epoch {epoch+1}/{config.training.num_epochs}") as pbar:
+            for batch_idx, batch in enumerate(pbar):
+                # Move data to device
+                batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+                        for k, v in batch.items()}
                 
-                # Log parameter gradients
-                if logger.isEnabledFor(logging.DEBUG):
-                    for name, param in model.named_parameters():
-                        if param.grad is not None:
-                            train_logger.debug(f"Gradient stats for {name}: "
-                                           f"Mean: {param.grad.mean():.4f}, "
-                                           f"Std: {param.grad.std():.4f}")
-        
-        # Log epoch summary
-        log_epoch_summary(logger, epoch, running_losses, len(train_loader))
-
-        # Validation
-        val_metrics = validate(model, val_loader, metrics, config, device)
-        log_validation_results(train_logger, 'cyclegan', epoch, val_metrics)
-        
-        # Save best model if enabled
-        if config.logging.save_best:
-            current_val_loss = val_metrics['content_loss'] + val_metrics['style_loss']
-            if current_val_loss < best_val_loss:
-                best_val_loss = current_val_loss
-                best_model_path = os.path.join(
-                    config.logging.save_dir,
-                    f'best_model_epoch_{epoch}.pth'
-                )
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'val_loss': best_val_loss,
-                }, best_model_path)
-                
-                # Remove previous best model if it exists
-                for f in os.listdir(config.logging.save_dir):
-                    if f.startswith('best_model_epoch_') and f != os.path.basename(best_model_path):
-                        os.remove(os.path.join(config.logging.save_dir, f))
+                # Rest of your training code...
 
 def log_training_progress(logger, epoch, batch, losses, fake_A, fake_B, cycle_A, cycle_B, identity_A, identity_B):
     """Log training progress including images and metrics"""
