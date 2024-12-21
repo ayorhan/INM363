@@ -195,11 +195,28 @@ def train_step(model, batch, loss_fn, optimizer, config):
     total_loss.backward()
     optimizer.step()
     
-    # Add tensor statistics logging
+    # Enhanced logging for Johnson model
     if model_type == 'johnson':
+        # Input/Output ranges
         train_logger.debug(f"Content tensor range: [{batch['content'].min():.2f}, {batch['content'].max():.2f}]")
         train_logger.debug(f"Style tensor range: [{batch['style'].min():.2f}, {batch['style'].max():.2f}]")
         train_logger.debug(f"Output tensor range: [{outputs['generated'].min():.2f}, {outputs['generated'].max():.2f}]")
+        
+        # Loss components
+        train_logger.debug(f"Content loss: {losses['content_loss']:.4f}")
+        train_logger.debug(f"Style loss: {losses['style_loss']:.4f}")
+        train_logger.debug(f"Total variation loss: {losses['tv_loss']:.4f}")
+        
+        # Gradient statistics
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                grad_norm = param.grad.norm().item()
+                train_logger.debug(f"Gradient norm for {name}: {grad_norm:.4f}")
+        
+        # Feature statistics from VGG layers
+        for layer_name in loss_fn.content_layers + loss_fn.style_layers:
+            features = loss_fn.layers[loss_fn.layer_mapping[layer_name]](outputs['generated'])
+            train_logger.debug(f"VGG {layer_name} features range: [{features.min():.2f}, {features.max():.2f}]")
     
     return losses, outputs
 
