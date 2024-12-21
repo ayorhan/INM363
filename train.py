@@ -462,12 +462,12 @@ def train_cyclegan(model, train_loader, val_loader, config, device, logger):
             loss_D.backward()
             optimizer_D.step()
             
-            # Update running losses
+            # Update running losses - handle both tensor and float values
             running_losses['total_loss'] += (loss_G.item() + loss_D.item())
             for k, v in loss_dict.items():
-                running_losses[k] += v.item()
+                running_losses[k] += v.item() if torch.is_tensor(v) else v
             for k, v in d_loss_dict.items():
-                running_losses[k] += v.item()
+                running_losses[k] += v if isinstance(v, float) else v.item()
             
             # Enhanced logging
             if batch_idx % config.logging.log_interval == 0:
