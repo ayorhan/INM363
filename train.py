@@ -37,9 +37,21 @@ from utils.logging_utils import setup_training_logger, log_training_step, log_va
 
 def setup_logging(config: StyleTransferConfig) -> None:
     """Setup logging configuration"""
+    # Create logs directory
+    os.makedirs('logs', exist_ok=True)
+    
+    # Get timestamp for log file
+    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_file = os.path.join('logs', f'training_{timestamp}.log')
+    
+    # Setup logging configuration
     logging.basicConfig(
-        level=getattr(config, 'log_level', logging.INFO),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()  # This will maintain console output
+        ]
     )
 
 def setup_datasets(config: StyleTransferConfig):
@@ -280,6 +292,18 @@ def train(config_path: str):
                             'images/style': wandb.Image(batch['style'][0].cpu()),
                             'images/generated': wandb.Image(outputs['generated'][0].cpu())
                         }, epoch * len(train_loader) + batch_idx)
+                
+                # Get the progress bar string and log it
+                progress_info = (f"Epoch {epoch+1}/{config.training.num_epochs}: "
+                                f"[{batch_idx}/{len(train_loader)}] "
+                                f"loss={total_loss.item():.2f}, "
+                                f"G_A={losses['G_AB'].item():.2f}, "
+                                f"G_B={losses['G_BA'].item():.2f}, "
+                                f"cycle_A={losses['cycle_A'].item():.2f}, "
+                                f"cycle_B={losses['cycle_B'].item():.2f}, "
+                                f"identity={losses['identity_A'].item():.2f}")
+                
+                train_logger.info(progress_info)
         
         # Validation
         if epoch % config.training.validation_interval == 0:
