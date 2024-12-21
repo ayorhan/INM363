@@ -157,10 +157,14 @@ class JohnsonModel(nn.Module):
     def _init_weights(self, m: nn.Module):
         """Initialize network weights with improved method"""
         if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
-            nn.init.kaiming_normal_(m.weight, mode='fan_out', 
-                                  nonlinearity='relu')
+            nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu', a=0.1)
             if m.bias is not None:
-                nn.init.constant_(m.bias, 0)
+                nn.init.zeros_(m.bias)
+        elif isinstance(m, nn.InstanceNorm2d):
+            if m.weight is not None:
+                nn.init.ones_(m.weight)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Initial features
@@ -256,9 +260,16 @@ class EnhancedPerceptualLoss(nn.Module):
                 style_loss += F.mse_loss(gen_gram, target_gram)
         
         total_loss = (self.content_weight * content_loss + 
-                     self.style_weight * style_loss)
+                     self.style_weight * style_loss +
+                     self.tv_weight * self.tv_loss(generated))
         
         return total_loss, {
             'content_loss': content_loss.item(),
             'style_loss': style_loss.item()
         }
+
+    def tv_loss(self, x):
+        """Total variation loss to reduce artifacts"""
+        h_tv = torch.mean(torch.abs(x[:,:,1:,:] - x[:,:,:-1,:]))
+        w_tv = torch.mean(torch.abs(x[:,:,:,1:] - x[:,:,:,:-1]))
+        return h_tv + w_tv
