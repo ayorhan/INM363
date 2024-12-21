@@ -205,12 +205,12 @@ def train(config_path: str):
     # Load configuration
     config = load_config(config_path)
     
-    # Setup logging
-    setup_logging(config)
-    logger = logging.getLogger(__name__)
+    # Initialize single logger for entire training process
+    train_logger = setup_training_logger()
+    train_logger.info("Starting training process...")
     
     # Setup datasets and dataloaders
-    logger.info("Setting up datasets...")
+    train_logger.info("Setting up datasets...")
     train_content_dir, train_style_dir, val_content_dir, val_style_dir = setup_datasets(config)
     train_loader, val_loader = create_dataloaders(
         config, train_content_dir, train_style_dir, val_content_dir, val_style_dir
@@ -220,6 +220,7 @@ def train(config_path: str):
     use_wandb = initialize_wandb(config)
     
     # Initialize model
+    train_logger.info("Initializing model...")
     model = get_model(config)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
@@ -248,124 +249,20 @@ def train(config_path: str):
         frequency=config.training.validation_interval
     )
     
-    # Before the training loop:
+    # Initialize metrics
     metrics = StyleTransferMetrics(device)
     
     # Create all required directories
-    os.makedirs(config.logging.save_dir, exist_ok=True)  # For checkpoints
-    os.makedirs(config.logging.output_dir, exist_ok=True)  # For outputs
-    os.makedirs('logs', exist_ok=True)  # For logging
+    os.makedirs(config.logging.save_dir, exist_ok=True)
+    os.makedirs(config.logging.output_dir, exist_ok=True)
+    os.makedirs('logs', exist_ok=True)
     
-    # Initialize logger before training
-    train_logger = setup_training_logger()
+    # Start training
+    train_logger.info("Starting CycleGAN training...")
+    train_cyclegan(model, train_loader, val_loader, config, device, train_logger)
     
-    # Pass logger to train_cyclegan
-    train_cyclegan(model, train_loader, val_loader, config, device, train_logger)  # Use the same logger
-    
-    # Training loop
-    best_val_loss = float('inf')
-    for epoch in range(config.training.num_epochs):
-        model.train()
-        total_loss = 0
-        
-        with tqdm(train_loader, desc=f"Epoch {epoch+1}/{config.training.num_epochs}") as pbar:
-            for batch_idx, batch in enumerate(pbar):
-                # Move data to device
-                batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
-                        for k, v in batch.items()}
-                
-                # Forward pass and get losses
-                losses, outputs = train_step(model, batch, loss_fn, optimizer, config)
-                total_loss = sum(losses.values())
-                
-                # Update progress bar
-                pbar.set_postfix({
-                    'loss': total_loss.item(),
-                    **{k: v.item() for k, v in losses.items()}
-                })
-                
-                # Log metrics and images
-                if use_wandb:
-                    log_metrics({
-                        'total_loss': total_loss.item(),
-                        'learning_rate': optimizer.param_groups[0]['lr'],
-                        **{k: v.item() for k, v in losses.items()}
-                    }, epoch * len(train_loader) + batch_idx)
-                
-                    if batch_idx % config.logging.log_interval == 0:
-                        log_metrics({
-                            'images/content': wandb.Image(batch['content'][0].cpu()),
-                            'images/style': wandb.Image(batch['style'][0].cpu()),
-                            'images/generated': wandb.Image(outputs['generated'][0].cpu())
-                        }, epoch * len(train_loader) + batch_idx)
-                
-                # Get the progress bar string and log it
-                progress_info = (f"Epoch {epoch+1}/{config.training.num_epochs}: "
-                                f"[{batch_idx}/{len(train_loader)}] "
-                                f"loss={total_loss.item():.2f}")
-                
-                # Add optional loss components if they exist
-                if 'G_AB' in losses:
-                    progress_info += f", G_A={losses['G_AB'].item():.2f}"
-                if 'G_BA' in losses:
-                    progress_info += f", G_B={losses['G_BA'].item():.2f}"
-                if 'cycle_A' in losses:
-                    progress_info += f", cycle_A={losses['cycle_A'].item():.2f}"
-                if 'cycle_B' in losses:
-                    progress_info += f", cycle_B={losses['cycle_B'].item():.2f}"
-                if 'identity_A' in losses:
-                    progress_info += f", identity={losses['identity_A'].item():.2f}"
-                
-                train_logger.info(progress_info)
-        
-        # Validation
-        if epoch % config.training.validation_interval == 0:
-            val_metrics = validate(model, val_loader, metrics, config, device)
-            
-            # Save best model if enabled
-            if config.logging.save_best:
-                current_val_loss = val_metrics['content_loss'] + val_metrics['style_loss']
-                if current_val_loss < best_val_loss:
-                    best_val_loss = current_val_loss
-                    best_model_path = os.path.join(
-                        config.logging.save_dir,
-                        f'best_model_epoch_{epoch}.pth'
-                    )
-                    torch.save({
-                        'epoch': epoch,
-                        'model_state_dict': model.state_dict(),
-                        'val_loss': best_val_loss,
-                    }, best_model_path)
-                    
-                    # Remove previous best model if it exists
-                    for f in os.listdir(config.logging.save_dir):
-                        if f.startswith('best_model_epoch_') and f != os.path.basename(best_model_path):
-                            os.remove(os.path.join(config.logging.save_dir, f))
-        
-        # Log validation metrics
-        if use_wandb:
-            log_metrics(val_metrics, epoch, prefix='validation')
-        
-        # Update learning rate and log it
-        scheduler.step()
-        if use_wandb:
-            log_metrics({
-                'learning_rate': scheduler.get_last_lr()[0]
-            }, epoch)
-        
-        # Early stopping
-        if hasattr(config.training, 'early_stopping') and config.training.early_stopping:
-            if val_metrics.get('val_loss', float('inf')) < best_val_loss:
-                best_val_loss = val_metrics['val_loss']
-                patience = config.training.patience
-            else:
-                patience -= 1
-                if patience <= 0:
-                    logging.info("Early stopping triggered")
-                    break
-
     # After training completes, run evaluation
-    print("\nRunning post-training evaluation...")
+    train_logger.info("\nRunning post-training evaluation...")
     output_dir = Path(f'evaluation_results/{config.model.model_type}')
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -441,12 +338,28 @@ def train_cyclegan(model, train_loader, val_loader, config, device, logger):
                     cycle_A, cycle_B, identity_A, identity_B, config
                 )
                 g_loss.backward()
+                
+                # Log generator gradients
+                for name, param in model.named_parameters():
+                    if param.grad is not None:
+                        logger.debug(f"Gradient stats for {name}: "
+                                   f"Mean: {param.grad.mean().item():.4f}, "
+                                   f"Std: {param.grad.std().item():.4f}")
+                
                 optimizer.step()
                 
                 # Train discriminators
                 optimizer.zero_grad()
                 d_loss, d_losses = train_discriminator(model, real_A, real_B, fake_A, fake_B)
                 d_loss.backward()
+                
+                # Log discriminator gradients
+                for name, param in model.named_parameters():
+                    if param.grad is not None and 'D_' in name:
+                        logger.debug(f"Gradient stats for {name}: "
+                                   f"Mean: {param.grad.mean().item():.4f}, "
+                                   f"Std: {param.grad.std().item():.4f}")
+                
                 optimizer.step()
                 
                 # Update running losses
@@ -455,13 +368,19 @@ def train_cyclegan(model, train_loader, val_loader, config, device, logger):
                 for k, v in d_losses.items():
                     running_losses[k] += v
                 
-                # Log progress
+                # Log detailed progress
                 if batch_idx % config.logging.log_interval == 0:
                     logger.info(f"Epoch [{epoch+1}][{batch_idx}/{len(train_loader)}] "
                               f"G_AB: {g_losses['G_AB']:.4f}, G_BA: {g_losses['G_BA']:.4f}, "
                               f"D_A: {d_losses['D_A']:.4f}, D_B: {d_losses['D_B']:.4f}, "
                               f"Cycle: {(g_losses['cycle_A'] + g_losses['cycle_B']):.4f}, "
                               f"Identity: {(g_losses['identity_A'] + g_losses['identity_B']):.4f}")
+                    
+                    # Log tensor statistics
+                    logger.debug(f"Real A tensor range: [{real_A.min():.2f}, {real_A.max():.2f}]")
+                    logger.debug(f"Real B tensor range: [{real_B.min():.2f}, {real_B.max():.2f}]")
+                    logger.debug(f"Fake A tensor range: [{fake_A.min():.2f}, {fake_A.max():.2f}]")
+                    logger.debug(f"Fake B tensor range: [{fake_B.min():.2f}, {fake_B.max():.2f}]")
                     
                     if use_wandb:
                         log_training_progress(wandb, epoch, batch, 
@@ -591,6 +510,38 @@ def log_metrics(metrics: Dict[str, float], step: int, prefix: str = '') -> None:
             {f"{prefix}/{k}" if prefix else k: v for k, v in metrics.items()},
             step=step
         )
+
+def setup_training_logger():
+    """Setup training logger with a single file handler"""
+    # Get current timestamp for the log file
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = f'logs/training_{timestamp}.log'
+    
+    # Create logger
+    logger = logging.getLogger('training')
+    logger.setLevel(logging.DEBUG)
+    
+    # Remove any existing handlers
+    logger.handlers.clear()
+    
+    # Create file handler
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(logging.DEBUG)
+    
+    # Create console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    
+    # Create formatter
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+    
+    # Add handlers to logger
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return logger
 
 if __name__ == "__main__":
     import argparse
