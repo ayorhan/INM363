@@ -136,9 +136,9 @@ class StyleTransferLoss(nn.Module):
     """Combined loss for style transfer"""
     def __init__(self, config):
         super().__init__()
-        self.content_weight = config.training.content_weight
-        self.style_weight = config.training.style_weight
-        self.tv_weight = config.training.tv_weight
+        self.content_weight = float(config.training.content_weight)
+        self.style_weight = float(config.training.style_weight)
+        self.tv_weight = float(config.training.tv_weight)
         
         # Get layers from model config
         self.content_layers = config.model.content_layers
@@ -250,7 +250,7 @@ class StyleTransferLoss(nn.Module):
             style_loss += F.mse_loss(output_gram, style_gram)
         
         # Total variation loss - using the raw generated image
-        tv_loss = torch.tensor(self.tv_weight, device=generated.device) * self.total_variation_loss(generated)
+        tv_loss = float(self.tv_weight) * self.total_variation_loss(generated)
         
         return {
             'content': self.content_weight * content_loss,
