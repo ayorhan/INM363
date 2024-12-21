@@ -384,11 +384,11 @@ def train_cyclegan(model, train_loader, val_loader, config, device, logger):
                     )
                 
                 # Save samples periodically during training
-                if batch_idx % config.logging.sample_interval == 0:
+                if batch_idx % config.logging.visualization.sample_interval == 0:
                     samples_output_dir = Path(config.logging.output_dir)
                     save_checkpoint_samples(
                         model, val_loader, epoch, 
-                        samples_output_dir, 'cyclegan'
+                        samples_output_dir, 'cyclegan', config
                     )
                 
             # End of epoch => (2) Validation step
