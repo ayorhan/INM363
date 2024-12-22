@@ -155,16 +155,17 @@ class JohnsonModel(nn.Module):
         )
     
     def _init_weights(self, m: nn.Module):
-        """Initialize network weights with improved method"""
+        """Modified weight initialization"""
         if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
-            nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu', a=0.1)
+            # Reduce initial weight variance
+            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu', a=0.2)
             if m.bias is not None:
-                nn.init.zeros_(m.bias)
+                nn.init.constant_(m.bias, 0.01)  # Small positive bias
         elif isinstance(m, nn.InstanceNorm2d):
             if m.weight is not None:
-                nn.init.ones_(m.weight)
+                nn.init.normal_(m.weight, mean=1.0, std=0.02)
             if m.bias is not None:
-                nn.init.zeros_(m.bias)
+                nn.init.constant_(m.bias, 0.0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Initial features
@@ -244,6 +245,10 @@ class EnhancedPerceptualLoss(nn.Module):
         content_loss = 0
         style_loss = 0
         
+        # Normalize inputs to reduce extreme values
+        generated = F.instance_norm(generated)
+        target = F.instance_norm(target)
+        
         # Add layer weights for style
         style_weights = {
             'relu1_1': 1.0,
@@ -257,12 +262,15 @@ class EnhancedPerceptualLoss(nn.Module):
             gen_features = layer(generated)
             target_features = layer(target)
             
-            # Content loss
+            # Add feature normalization
             if name in [self.layer_mapping[l] for l in self.content_layers]:
+                gen_features = F.instance_norm(gen_features)
+                target_features = F.instance_norm(target_features)
                 content_loss += F.mse_loss(gen_features, target_features)
             
-            # Weighted style loss
             if name in [self.layer_mapping[l] for l in self.style_layers]:
+                gen_features = F.instance_norm(gen_features)
+                target_features = F.instance_norm(target_features)
                 gen_gram = self.gram_matrix(gen_features)
                 target_gram = self.gram_matrix(target_features)
                 layer_name = next(l for l in self.style_layers 
