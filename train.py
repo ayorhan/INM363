@@ -297,39 +297,32 @@ def train(config_path: str):
         output_path=output_dir
     )
 
-def save_checkpoint(model, optimizer, epoch, batch_idx, loss, config, val_loader, is_best=False):
-    """Save model checkpoint and generate sample outputs"""
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_name = config.model.model_type
+def save_checkpoint(model, optimizer, epoch, lr, val_loss, config, is_best=False):
+    """Save model checkpoint"""
+    checkpoint_dir = Path(config.logging.save_dir)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
     
-    # Save checkpoint
-    checkpoint_name = (f"{model_name}_checkpoint_epoch{epoch}_iter{batch_idx}_{timestamp}.pth")
-    save_path = Path(config.logging.save_dir) / checkpoint_name
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    
+    # Create checkpoint
     checkpoint = {
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
-        'loss': loss,
+        'val_loss': val_loss,
+        'learning_rate': lr,
+        'config': config
     }
     
-    torch.save(checkpoint, save_path)
+    # Save regular checkpoint
+    checkpoint_path = checkpoint_dir / f'checkpoint_epoch{epoch}.pth'
+    torch.save(checkpoint, checkpoint_path)
     
-    # Generate and save sample outputs with config
-    samples_output_dir = Path(config.logging.output_dir)
-    save_checkpoint_samples(
-        model, val_loader, epoch, samples_output_dir, 
-        config.model.model_type, config
-    )
-    
-    # Create/update progress visualization
-    create_progress_visualization(samples_output_dir, model_name)
-    
-    # If this is the best model so far, save an additional copy
+    # Save best model if specified
     if is_best:
-        best_path = save_path.parent / f"{model_name}_best.pth"
+        best_path = checkpoint_dir / 'best_model.pth'
         torch.save(checkpoint, best_path)
+        logging.info(f"Saved best model with validation loss: {val_loss:.4f}")
+    
+    logging.info(f"Saved checkpoint for epoch {epoch}")
 
 def train_cyclegan(model, train_loader, val_loader, config, device, logger):
     use_wandb = initialize_wandb(config)
@@ -414,6 +407,18 @@ def train_cyclegan(model, train_loader, val_loader, config, device, logger):
                         samples_output_dir, 'cyclegan', config
                     )
                 
+                # Save checkpoint at regular intervals
+                if (batch_idx + 1) % config.training.save_interval == 0:
+                    save_checkpoint(
+                        model=model,
+                        optimizer=optimizer,
+                        epoch=epoch,
+                        lr=optimizer.param_groups[0]['lr'],
+                        val_loss=running_losses['G_total'] / (batch_idx + 1),  # Use generator loss as metric
+                        config=config,
+                        is_best=False
+                    )
+                
             # End of epoch => (2) Validation step
             if (epoch + 1) % config.training.validation_interval == 0:
                 val_loss = run_cyclegan_validation(model, val_loader, config, device, logger)
@@ -421,7 +426,7 @@ def train_cyclegan(model, train_loader, val_loader, config, device, logger):
                 # Track best val loss
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
-                    save_checkpoint(model, optimizer, epoch, 0, val_loss, config, val_loader, is_best=True)
+                    save_checkpoint(model, optimizer, epoch, 0, val_loss, config, is_best=True)
                 
         # We can also log epoch summary here
         if use_wandb:
@@ -759,10 +764,19 @@ def train_johnson(model, train_loader, val_loader, config, device, logger):
                 val_loss = validate(model, val_loader, loss_fn, config, device)
                 logger.info(f"Validation loss: {val_loss:.4f}")
                 
+                # Save checkpoint
+                save_checkpoint(
+                    model=model,
+                    optimizer=optimizer,
+                    epoch=epoch,
+                    lr=scheduler.get_last_lr()[0],
+                    val_loss=val_loss,
+                    config=config,
+                    is_best=(val_loss < best_val_loss)
+                )
+                
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
-                    save_checkpoint(model, optimizer, epoch, scheduler.get_last_lr()[0], 
-                                 val_loss, config, val_loader, is_best=True)
         
         # Step the scheduler
         scheduler.step()
