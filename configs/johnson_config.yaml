@@ -9,7 +9,7 @@ model:
   norm_type: "instance"
   style_model: "vgg19"
   content_layers: ["relu4_2"]  # Changed from relu3_3
-  style_layers: ["relu1_1", "relu2_1", "relu3_1", "relu4_1"]  # Reduced and changed layers
+  style_layers: ["relu1_1", "relu2_1", "relu3_1", "relu4_1", "relu5_1"]  # Reduced and changed layers
 
 training:
   batch_size: 32
@@ -21,7 +21,7 @@ training:
   step_size: 20
   gamma: 0.5
   content_weight: 1.0
-  style_weight: 5.0
+  style_weight: 10.0
   tv_weight: 1e-6
   save_interval: 500
   validation_interval: 5000

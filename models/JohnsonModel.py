@@ -190,11 +190,11 @@ class EnhancedPerceptualLoss(nn.Module):
     Enhanced perceptual loss with multiple VGG layers and style loss option
     """
     def __init__(self, 
-                 content_layers: List[str] = ['relu4_1'],
+                 content_layers: List[str] = ['relu3_3'],
                  style_layers: List[str] = ['relu1_1', 'relu2_1', 
-                                          'relu3_1', 'relu4_1'],
+                                          'relu3_1', 'relu4_1', 'relu5_1'],
                  content_weight: float = 1.0,
-                 style_weight: float = 0.0):
+                 style_weight: float = 10.0):
         super(EnhancedPerceptualLoss, self).__init__()
         
         self.content_weight = content_weight
@@ -244,7 +244,15 @@ class EnhancedPerceptualLoss(nn.Module):
         content_loss = 0
         style_loss = 0
         
-        # Compute losses for each layer
+        # Add layer weights for style
+        style_weights = {
+            'relu1_1': 1.0,
+            'relu2_1': 0.8,
+            'relu3_1': 0.6,
+            'relu4_1': 0.4,
+            'relu5_1': 0.2
+        }
+        
         for name, layer in self.layers.items():
             gen_features = layer(generated)
             target_features = layer(target)
@@ -253,11 +261,14 @@ class EnhancedPerceptualLoss(nn.Module):
             if name in [self.layer_mapping[l] for l in self.content_layers]:
                 content_loss += F.mse_loss(gen_features, target_features)
             
-            # Style loss
+            # Weighted style loss
             if name in [self.layer_mapping[l] for l in self.style_layers]:
                 gen_gram = self.gram_matrix(gen_features)
                 target_gram = self.gram_matrix(target_features)
-                style_loss += F.mse_loss(gen_gram, target_gram)
+                layer_name = next(l for l in self.style_layers 
+                                if self.layer_mapping[l] == name)
+                weight = style_weights.get(layer_name, 1.0)
+                style_loss += weight * F.mse_loss(gen_gram, target_gram)
         
         total_loss = (self.content_weight * content_loss + 
                      self.style_weight * style_loss +
