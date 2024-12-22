@@ -127,6 +127,10 @@ class JohnsonModel(nn.Module):
             nn.Tanh()
         )
         
+        # Add gradient scaling factors
+        self.register_buffer('content_scale', torch.tensor(0.1))
+        self.register_buffer('style_scale', torch.tensor(5.0))
+        
         # Initialize weights
         self.apply(self._init_weights)
 
@@ -157,17 +161,21 @@ class JohnsonModel(nn.Module):
     def _init_weights(self, m: nn.Module):
         """Modified weight initialization"""
         if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
-            # Reduce initial weight variance
-            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu', a=0.2)
+            # Use smaller initialization
+            nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu', a=0.1)
             if m.bias is not None:
-                nn.init.constant_(m.bias, 0.01)  # Small positive bias
+                nn.init.zeros_(m.bias)
         elif isinstance(m, nn.InstanceNorm2d):
             if m.weight is not None:
                 nn.init.normal_(m.weight, mean=1.0, std=0.02)
             if m.bias is not None:
-                nn.init.constant_(m.bias, 0.0)
+                nn.init.zeros_(m.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Add gradient scaling
+        if self.training:
+            x = x * self.content_scale
+        
         # Initial features
         x = self.initial(x)
         
@@ -184,6 +192,8 @@ class JohnsonModel(nn.Module):
             x = up_block(x)
         
         # Final output
+        if self.training:
+            x = x / self.content_scale
         return self.output(x)
 
 class EnhancedPerceptualLoss(nn.Module):
@@ -245,50 +255,47 @@ class EnhancedPerceptualLoss(nn.Module):
         content_loss = 0
         style_loss = 0
         
-        # Normalize inputs to reduce extreme values
+        # Normalize and scale inputs
         generated = F.instance_norm(generated)
         target = F.instance_norm(target)
-        
-        # Add layer weights for style
-        style_weights = {
-            'relu1_1': 1.0,
-            'relu2_1': 0.8,
-            'relu3_1': 0.6,
-            'relu4_1': 0.4,
-            'relu5_1': 0.2
-        }
         
         for name, layer in self.layers.items():
             gen_features = layer(generated)
             target_features = layer(target)
             
-            # Add feature normalization
+            # Normalize features
+            gen_features = F.instance_norm(gen_features)
+            target_features = F.instance_norm(target_features)
+            
             if name in [self.layer_mapping[l] for l in self.content_layers]:
-                gen_features = F.instance_norm(gen_features)
-                target_features = F.instance_norm(target_features)
-                content_loss += F.mse_loss(gen_features, target_features)
+                # Scale content loss
+                content_loss += 0.5 * F.mse_loss(gen_features, target_features)
             
             if name in [self.layer_mapping[l] for l in self.style_layers]:
-                gen_features = F.instance_norm(gen_features)
-                target_features = F.instance_norm(target_features)
                 gen_gram = self.gram_matrix(gen_features)
                 target_gram = self.gram_matrix(target_features)
-                layer_name = next(l for l in self.style_layers 
-                                if self.layer_mapping[l] == name)
-                weight = style_weights.get(layer_name, 1.0)
-                style_loss += weight * F.mse_loss(gen_gram, target_gram)
+                # Add channel-wise normalization for style
+                gen_gram = F.normalize(gen_gram, dim=-1)
+                target_gram = F.normalize(target_gram, dim=-1)
+                style_loss += F.mse_loss(gen_gram, target_gram)
         
-        total_loss = (self.content_weight * content_loss + 
-                     self.style_weight * style_loss +
-                     self.tv_weight * self.tv_loss(generated))
+        # Enhanced TV loss
+        tv_loss = self.tv_loss(generated)
         
-        return total_loss, {
-            'content_loss': content_loss.item(),
-            'style_loss': style_loss.item()
+        return {
+            'content': content_loss * self.content_weight,
+            'style': style_loss * self.style_weight,
+            'tv': tv_loss * self.tv_weight
         }
 
     def tv_loss(self, x):
-        """Total variation loss to reduce artifacts"""
-        h_tv = torch.mean(torch.abs(x[:,:,1:,:] - x[:,:,:-1,:]))
-        w_tv = torch.mean(torch.abs(x[:,:,:,1:] - x[:,:,:,:-1]))
-        return h_tv + w_tv
+        """Enhanced TV loss with both L1 and L2 components"""
+        diff_i = torch.abs(x[:, :, :, 1:] - x[:, :, :, :-1])
+        diff_j = torch.abs(x[:, :, 1:, :] - x[:, :, :-1, :])
+        
+        # Combine L1 and L2
+        tv_loss = (
+            torch.mean(diff_i) + torch.mean(diff_j) +  # L1
+            torch.mean(diff_i**2) + torch.mean(diff_j**2)  # L2
+        )
+        return tv_loss
