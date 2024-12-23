@@ -760,8 +760,12 @@ def train_johnson(model, train_loader, val_loader, config, device, logger):
                     )
             
             # End of epoch validation
-            val_loss = validate(model, val_loader, loss_fn, config, device)
-            logger.info(f"Validation loss: {val_loss:.4f}")
+            val_losses = validate(model, val_loader, loss_fn, config, device)
+            total_val_loss = sum(val_losses.values())
+            logger.info(f"Validation losses: Content: {val_losses.get('content', 0):.4f}, "
+                        f"Style: {val_losses.get('style', 0):.4f}, "
+                        f"TV: {val_losses.get('tv', 0):.4f}")
+            logger.info(f"Total validation loss: {total_val_loss:.4f}")
             
             # Save checkpoint at the end of every epoch
             save_checkpoint(
@@ -769,13 +773,13 @@ def train_johnson(model, train_loader, val_loader, config, device, logger):
                 optimizer=optimizer,
                 epoch=epoch,
                 lr=scheduler.get_last_lr()[0],
-                val_loss=val_loss,
+                val_loss=total_val_loss,  # Use total validation loss
                 config=config,
-                is_best=(val_loss < best_val_loss)
+                is_best=(total_val_loss < best_val_loss)
             )
             
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+            if total_val_loss < best_val_loss:
+                best_val_loss = total_val_loss
         
         # Step the scheduler
         scheduler.step()
