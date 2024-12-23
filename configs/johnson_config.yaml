@@ -23,8 +23,8 @@ training:
   content_weight: 0.1
   style_weight: 25.0
   tv_weight: 0.01
-  save_interval: 500
-  validation_interval: 5000
+  save_interval: -1
+  validation_interval: 1
   min_lr: 0.00001
   gradient_clip: 5.0
 

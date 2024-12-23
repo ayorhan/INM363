@@ -760,23 +760,22 @@ def train_johnson(model, train_loader, val_loader, config, device, logger):
                     )
             
             # End of epoch validation
-            if (epoch + 1) % config.training.validation_interval == 0:
-                val_loss = validate(model, val_loader, loss_fn, config, device)
-                logger.info(f"Validation loss: {val_loss:.4f}")
-                
-                # Save checkpoint
-                save_checkpoint(
-                    model=model,
-                    optimizer=optimizer,
-                    epoch=epoch,
-                    lr=scheduler.get_last_lr()[0],
-                    val_loss=val_loss,
-                    config=config,
-                    is_best=(val_loss < best_val_loss)
-                )
-                
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
+            val_loss = validate(model, val_loader, loss_fn, config, device)
+            logger.info(f"Validation loss: {val_loss:.4f}")
+            
+            # Save checkpoint at the end of every epoch
+            save_checkpoint(
+                model=model,
+                optimizer=optimizer,
+                epoch=epoch,
+                lr=scheduler.get_last_lr()[0],
+                val_loss=val_loss,
+                config=config,
+                is_best=(val_loss < best_val_loss)
+            )
+            
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
         
         # Step the scheduler
         scheduler.step()
